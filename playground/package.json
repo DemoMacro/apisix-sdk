@@ -1,0 +1,16 @@
+{
+  "name": "apisix-sdk-playground",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playground for testing APISIX SDK",
+  "type": "module",
+  "scripts": {
+    "example": "vite-node examples/index.ts",
+    "example:basic": "vite-node examples/basic-usage.ts",
+    "example:advanced": "vite-node examples/advanced-features.ts",
+    "example:plugins": "vite-node examples/plugin-examples.ts"
+  },
+  "dependencies": {
+    "c12": "3.0.4"
+  }
+}

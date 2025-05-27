@@ -1,0 +1,7 @@
+packages:
+  - packages/**
+  - playground/**
+  - "!**/test/**"
+onlyBuiltDependencies:
+  - ffi-napi
+  - ref-napi

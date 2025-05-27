@@ -1,0 +1,62 @@
+{
+  "name": "apisix-sdk",
+  "version": "0.0.1",
+  "description": "Apache APISIX SDK - Complete TypeScript/JavaScript client for APISIX Admin API and Control API with APISIX 3.0+ support",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "unbuild",
+    "dev": "unbuild --stub",
+    "prepack": "pnpm build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DemoMacro/apisix-sdk.git"
+  },
+  "keywords": [
+    "apisix",
+    "api-gateway",
+    "microservices",
+    "typescript",
+    "sdk",
+    "rest-api",
+    "admin-api",
+    "control-api",
+    "apache",
+    "http-client",
+    "stream-routes",
+    "tcp-proxy",
+    "udp-proxy",
+    "credentials",
+    "secrets",
+    "vault",
+    "aws-secrets",
+    "gcp-secrets",
+    "apisix-3"
+  ],
+  "author": {
+    "name": "Demo Macro",
+    "email": "abc@imst.xyz",
+    "url": "https://imst.xyz/"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/DemoMacro/apisix-sdk/issues"
+  },
+  "homepage": "https://github.com/DemoMacro/apisix-sdk#readme",
+  "devDependencies": {
+    "ofetch": "1.4.1"
+  }
+}
