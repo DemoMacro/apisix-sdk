@@ -1,13 +1,11 @@
 import type { ApisixClient } from "../client";
-import type { Consumer, CreateInput, ListOptions, UpdateInput } from "../types";
-
-export interface ConsumerCredential {
-  id?: string;
-  plugins: Record<string, unknown>;
-  desc?: string;
-  create_time?: number;
-  update_time?: number;
-}
+import type {
+  Consumer,
+  ConsumerCredential,
+  CreateInput,
+  ListOptions,
+  UpdateInput,
+} from "../types";
 
 export class Consumers {
   private readonly endpoint = "/consumers";
@@ -25,7 +23,7 @@ export class Consumers {
       this.client.getAdminEndpoint(this.endpoint),
       options,
     );
-    return this.client.extractList(response);
+    return await this.client.extractList(response);
   }
 
   /**
@@ -36,7 +34,7 @@ export class Consumers {
       this.client.getAdminEndpoint(this.endpoint),
       username,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -48,7 +46,7 @@ export class Consumers {
       consumer,
       consumer.username,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -63,7 +61,7 @@ export class Consumers {
       username,
       consumer,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -78,7 +76,7 @@ export class Consumers {
       username,
       consumer,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -142,7 +140,7 @@ export class Consumers {
     );
 
     return {
-      consumers: this.client.extractList(response),
+      consumers: await this.client.extractList(response),
       total: response.total,
       hasMore: response.has_more,
     };
@@ -171,7 +169,7 @@ export class Consumers {
     const response = await this.client.list<ConsumerCredential>(
       this.client.getAdminEndpoint(`${this.endpoint}/${username}/credentials`),
     );
-    return this.client.extractList(response);
+    return await this.client.extractList(response);
   }
 
   /**
@@ -185,7 +183,7 @@ export class Consumers {
       this.client.getAdminEndpoint(`${this.endpoint}/${username}/credentials`),
       credentialId,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -201,7 +199,7 @@ export class Consumers {
       credential,
       credentialId,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -219,7 +217,7 @@ export class Consumers {
       credentialId,
       credential,
     );
-    return this.client.extractValue(response);
+    return await this.client.extractValue(response);
   }
 
   /**
@@ -309,7 +307,7 @@ export class Consumers {
     return this.createCredential(username, id, {
       plugins: {
         "hmac-auth": {
-          access_key: accessKey,
+          key_id: accessKey,
           secret_key: secretKey,
         },
       },

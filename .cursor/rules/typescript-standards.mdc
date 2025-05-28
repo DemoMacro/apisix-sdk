@@ -27,13 +27,14 @@ const data: any = fetchData();
 
 // ❌ NEVER use type assertions
 const result = data as SomeType;
-const element = document.getElementById('id') as HTMLElement;
+const element = document.getElementById("id") as HTMLElement;
 
 // ❌ NEVER use non-null assertions
-const element = document.getElementById('id')!;
+const element = document.getElementById("id")!;
 
 // ❌ NEVER use implicit any
-function processValue(value) { // implicit any parameter
+function processValue(value) {
+  // implicit any parameter
   return value;
 }
 ```
@@ -55,10 +56,10 @@ function isHTMLElement(element: Element | null): element is HTMLElement {
   return element !== null && element instanceof HTMLElement;
 }
 
-const element = document.getElementById('id');
+const element = document.getElementById("id");
 if (isHTMLElement(element)) {
   // Safe to use element as HTMLElement
-  element.style.display = 'none';
+  element.style.display = "none";
 }
 
 // ✅ Use unknown for truly unknown data, then validate
@@ -72,12 +73,12 @@ function parseJson(jsonString: string): unknown {
 
 function isUserData(obj: unknown): obj is UserData {
   return (
-    typeof obj === 'object' &&
+    typeof obj === "object" &&
     obj !== null &&
-    'id' in obj &&
-    'name' in obj &&
-    typeof (obj as UserData).id === 'string' &&
-    typeof (obj as UserData).name === 'string'
+    "id" in obj &&
+    "name" in obj &&
+    typeof (obj as UserData).id === "string" &&
+    typeof (obj as UserData).name === "string"
   );
 }
 
@@ -104,9 +105,9 @@ interface UserProfile {
 }
 
 // ✅ Use type aliases for unions, primitives, and computed types
-type UserRole = 'admin' | 'editor' | 'viewer';
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-type Status = 'pending' | 'success' | 'failed' | 'cancelled';
+type UserRole = "admin" | "editor" | "viewer";
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
+type Status = "pending" | "success" | "failed" | "cancelled";
 
 // ✅ Use descriptive generic parameter names
 interface ApiClient<TResponse, TError = ApiError> {
@@ -127,32 +128,32 @@ interface Repository<TEntity, TCreateInput, TUpdateInput> {
 ```typescript
 // ✅ Custom type guards for complex validation
 function isValidEmail(value: unknown): value is string {
-  return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  return typeof value === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function isApiError(error: unknown): error is ApiError {
   return (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    'message' in error &&
-    typeof (error as ApiError).code === 'string' &&
-    typeof (error as ApiError).message === 'string'
+    "code" in error &&
+    "message" in error &&
+    typeof (error as ApiError).code === "string" &&
+    typeof (error as ApiError).message === "string"
   );
 }
 
 // ✅ Discriminated unions with type guards
 interface LoadingState {
-  type: 'loading';
+  type: "loading";
 }
 
 interface SuccessState {
-  type: 'success';
+  type: "success";
   data: UserData[];
 }
 
 interface ErrorState {
-  type: 'error';
+  type: "error";
   error: string;
 }
 
@@ -160,15 +161,15 @@ type AsyncState = LoadingState | SuccessState | ErrorState;
 
 function handleAsyncState(state: AsyncState): void {
   switch (state.type) {
-    case 'loading':
+    case "loading":
       // TypeScript knows this is LoadingState
       showSpinner();
       break;
-    case 'success':
+    case "success":
       // TypeScript knows this is SuccessState
       displayData(state.data);
       break;
-    case 'error':
+    case "error":
       // TypeScript knows this is ErrorState
       showError(state.error);
       break;
@@ -177,7 +178,7 @@ function handleAsyncState(state: AsyncState): void {
 
 // ✅ Use 'in' operator for object type narrowing
 function processResponse(response: SuccessResponse | ErrorResponse): void {
-  if ('data' in response) {
+  if ("data" in response) {
     // TypeScript knows this is SuccessResponse
     console.log(response.data);
   } else {
@@ -193,17 +194,17 @@ function processResponse(response: SuccessResponse | ErrorResponse): void {
 
 ```typescript
 // ✅ Use import type for type-only imports
-import type { UserProfile, ApiResponse, CreateUserInput } from './types';
-import type { ApisixClient } from './client';
+import type { UserProfile, ApiResponse, CreateUserInput } from "./types";
+import type { ApisixClient } from "./client";
 
 // ✅ Regular imports for values
-import { createUser, validateEmail, hashPassword } from './utils';
-import { UserService } from './services';
-import { CONFIG } from './constants';
+import { createUser, validateEmail, hashPassword } from "./utils";
+import { UserService } from "./services";
+import { CONFIG } from "./constants";
 
 // ✅ Mixed imports - separate type and value imports
-import { UserRepository } from './repositories';
-import type { UserRepositoryConfig } from './repositories';
+import { UserRepository } from "./repositories";
+import type { UserRepositoryConfig } from "./repositories";
 
 // ✅ Re-exports with explicit typing
 export type { UserProfile, ApiResponse };
@@ -221,25 +222,25 @@ export interface User {
   email: string;
 }
 
-export type CreateUserInput = Omit<User, 'id'>;
+export type CreateUserInput = Omit<User, "id">;
 export type UpdateUserInput = Partial<CreateUserInput>;
 
 // services.ts
-import type { User, CreateUserInput, UpdateUserInput } from './types';
+import type { User, CreateUserInput, UpdateUserInput } from "./types";
 
 export class UserService {
   async create(input: CreateUserInput): Promise<User> {
     // implementation
   }
-  
+
   async update(id: string, input: UpdateUserInput): Promise<User> {
     // implementation
   }
 }
 
 // index.ts
-export type { User, CreateUserInput, UpdateUserInput } from './types';
-export { UserService } from './services';
+export type { User, CreateUserInput, UpdateUserInput } from "./types";
+export { UserService } from "./services";
 ```
 
 ## Function and Method Standards
@@ -253,8 +254,10 @@ function calculateTotal(items: CartItem[]): number {
 }
 
 // ✅ Use arrow functions for simple operations and callbacks
-const formatCurrency = (amount: number, currency: string = 'USD'): string =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
+const formatCurrency = (amount: number, currency: string = "USD"): string =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
+    amount
+  );
 
 // ✅ Complex parameter objects with interfaces
 interface CreateOrderParams {
@@ -266,8 +269,9 @@ interface CreateOrderParams {
 }
 
 async function createOrder(params: CreateOrderParams): Promise<Order> {
-  const { customerId, items, shippingAddress, paymentMethod, discountCode } = params;
-  
+  const { customerId, items, shippingAddress, paymentMethod, discountCode } =
+    params;
+
   // implementation
   return order;
 }
@@ -285,7 +289,7 @@ function filterByProperty<TObject, TKey extends keyof TObject>(
   property: TKey,
   value: TObject[TKey]
 ): TObject[] {
-  return array.filter(item => item[property] === value);
+  return array.filter((item) => item[property] === value);
 }
 ```
 
@@ -319,7 +323,7 @@ async function loadDashboardData(userId: string): Promise<DashboardData> {
 }
 
 // ✅ Error handling with Result pattern
-type Result<TData, TError = Error> = 
+type Result<TData, TError = Error> =
   | { success: true; data: TData }
   | { success: false; error: TError };
 
@@ -333,13 +337,13 @@ async function safeApiCall<TData>(
     if (isApiError(error)) {
       return { success: false, error };
     }
-    return { 
-      success: false, 
-      error: { 
-        code: 'UNKNOWN_ERROR',
-        message: 'An unexpected error occurred',
-        details: { originalError: String(error) }
-      }
+    return {
+      success: false,
+      error: {
+        code: "UNKNOWN_ERROR",
+        message: "An unexpected error occurred",
+        details: { originalError: String(error) },
+      },
     };
   }
 }
@@ -352,21 +356,21 @@ async function safeApiCall<TData>(
 ```typescript
 // ✅ Define comprehensive error types
 interface ValidationError {
-  type: 'validation';
+  type: "validation";
   field: string;
   message: string;
   code: string;
 }
 
 interface NetworkError {
-  type: 'network';
+  type: "network";
   status: number;
   message: string;
   url: string;
 }
 
 interface BusinessError {
-  type: 'business';
+  type: "business";
   code: string;
   message: string;
   context?: Record<string, unknown>;
@@ -377,13 +381,15 @@ type AppError = ValidationError | NetworkError | BusinessError;
 // ✅ Error handling with proper typing
 function handleError(error: AppError): void {
   switch (error.type) {
-    case 'validation':
+    case "validation":
       console.error(`Validation error in ${error.field}: ${error.message}`);
       break;
-    case 'network':
-      console.error(`Network error ${error.status} for ${error.url}: ${error.message}`);
+    case "network":
+      console.error(
+        `Network error ${error.status} for ${error.url}: ${error.message}`
+      );
       break;
-    case 'business':
+    case "business":
       console.error(`Business logic error ${error.code}: ${error.message}`);
       break;
   }
@@ -394,12 +400,12 @@ function parseError(error: unknown): AppError {
   if (isValidationError(error)) return error;
   if (isNetworkError(error)) return error;
   if (isBusinessError(error)) return error;
-  
+
   return {
-    type: 'business',
-    code: 'UNKNOWN',
-    message: 'An unexpected error occurred',
-    context: { originalError: String(error) }
+    type: "business",
+    code: "UNKNOWN",
+    message: "An unexpected error occurred",
+    context: { originalError: String(error) },
   };
 }
 ```
@@ -410,15 +416,15 @@ function parseError(error: unknown): AppError {
 
 ```typescript
 // ✅ Explicit collection types
-const userIds: string[] = ['user1', 'user2', 'user3'];
+const userIds: string[] = ["user1", "user2", "user3"];
 const scores: Array<number> = [95, 87, 92, 78];
-const uniqueCategories: Set<string> = new Set(['tech', 'design', 'business']);
+const uniqueCategories: Set<string> = new Set(["tech", "design", "business"]);
 const userProfiles: Map<string, UserProfile> = new Map();
 
 // ✅ Type-safe collection operations
 function processUsers(users: User[]): ProcessedUser[] {
   return users
-    .filter((user): user is ActiveUser => user.status === 'active')
+    .filter((user): user is ActiveUser => user.status === "active")
     .map((user) => ({
       id: user.id,
       displayName: `${user.firstName} ${user.lastName}`,
@@ -432,13 +438,13 @@ function groupBy<TItem, TKey extends string | number>(
   keySelector: (item: TItem) => TKey
 ): Record<TKey, TItem[]> {
   const groups = {} as Record<TKey, TItem[]>;
-  
+
   for (const item of items) {
     const key = keySelector(item);
     groups[key] = groups[key] || [];
     groups[key].push(item);
   }
-  
+
   return groups;
 }
 ```
@@ -451,9 +457,12 @@ function groupBy<TItem, TKey extends string | number>(
 // ✅ Built-in utility types
 type PartialUser = Partial<User>;
 type RequiredUser = Required<User>;
-type UserEmail = Pick<User, 'email'>;
-type UserWithoutId = Omit<User, 'id'>;
-type CreateUserInput = Pick<User, 'username' | 'email' | 'firstName' | 'lastName'>;
+type UserEmail = Pick<User, "email">;
+type UserWithoutId = Omit<User, "id">;
+type CreateUserInput = Pick<
+  User,
+  "username" | "email" | "firstName" | "lastName"
+>;
 
 // ✅ Custom utility types
 type NonNullable<T> = T extends null | undefined ? never : T;
@@ -486,21 +495,21 @@ type HttpStatusCode = `${1 | 2 | 3 | 4 | 5}${string}`;
 declare const __brand: unique symbol;
 type Brand<T, TBrand> = T & { [__brand]: TBrand };
 
-type UserId = Brand<string, 'UserId'>;
-type Email = Brand<string, 'Email'>;
-type Timestamp = Brand<number, 'Timestamp'>;
+type UserId = Brand<string, "UserId">;
+type Email = Brand<string, "Email">;
+type Timestamp = Brand<number, "Timestamp">;
 
 // ✅ Type-safe constructor functions
 function createUserId(id: string): UserId {
   if (!id || id.length === 0) {
-    throw new Error('User ID cannot be empty');
+    throw new Error("User ID cannot be empty");
   }
   return id as UserId;
 }
 
 function createEmail(email: string): Email {
   if (!isValidEmail(email)) {
-    throw new Error('Invalid email format');
+    throw new Error("Invalid email format");
   }
   return email as Email;
 }
@@ -535,9 +544,9 @@ const MAX_RETRY_ATTEMPTS = 3;
 const DEFAULT_TIMEOUT = 30000;
 
 const API_ENDPOINTS = {
-  USERS: '/api/users',
-  ORDERS: '/api/orders',
-  PRODUCTS: '/api/products',
+  USERS: "/api/users",
+  ORDERS: "/api/orders",
+  PRODUCTS: "/api/products",
 } as const;
 
 // ✅ File and directory names: kebab-case
@@ -577,21 +586,21 @@ export { validateUser, createUser } from './operations';
 type SafeDeepPartial<T, Depth extends number = 5> = Depth extends 0
   ? T
   : {
-      [P in keyof T]?: T[P] extends object 
+      [P in keyof T]?: T[P] extends object
         ? SafeDeepPartial<T[P], [-1, 0, 1, 2, 3, 4][Depth]>
         : T[P];
     };
 
 // ✅ Use const assertions for better inference
-const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
-type HttpMethod = typeof HTTP_METHODS[number];
+const HTTP_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH"] as const;
+type HttpMethod = (typeof HTTP_METHODS)[number];
 
 const USER_ROLES = {
-  ADMIN: 'admin',
-  EDITOR: 'editor', 
-  VIEWER: 'viewer',
+  ADMIN: "admin",
+  EDITOR: "editor",
+  VIEWER: "viewer",
 } as const;
-type UserRole = typeof USER_ROLES[keyof typeof USER_ROLES];
+type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
 ```
 
 ## Testing Types
@@ -606,17 +615,18 @@ interface TestContext {
   testUser: User;
 }
 
-type MockedFunction<TFunc extends (...args: any[]) => any> = jest.MockedFunction<TFunc>;
+type MockedFunction<TFunc extends (...args: any[]) => any> =
+  jest.MockedFunction<TFunc>;
 
 // ✅ Test factory functions
 function createTestUser(overrides?: Partial<User>): User {
   return {
-    id: createUserId('test-user-id'),
-    username: 'testuser',
-    email: createEmail('test@example.com'),
-    firstName: 'Test',
-    lastName: 'User',
-    status: 'active',
+    id: createUserId("test-user-id"),
+    username: "testuser",
+    email: createEmail("test@example.com"),
+    firstName: "Test",
+    lastName: "User",
+    status: "active",
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -630,7 +640,7 @@ function createMockApiResponse<TData>(
   return {
     success: true,
     data,
-    message: 'Success',
+    message: "Success",
     timestamp: new Date().toISOString(),
     ...overrides,
   };
@@ -641,17 +651,17 @@ function createMockApiResponse<TData>(
 
 ### JSDoc Comments
 
-```typescript
+````typescript
 /**
  * Creates a new user account with the provided information.
- * 
+ *
  * Validates the input data, hashes the password, and stores the user
  * in the database. Sends a welcome email upon successful creation.
  *
  * @param input - The user creation data including username, email, and password
  * @param options - Additional options for user creation behavior
  * @returns Promise that resolves to the created user data (without password)
- * 
+ *
  * @throws {ValidationError} When input data is invalid
  * @throws {DuplicateEmailError} When email already exists in the system
  * @throws {DatabaseError} When database operation fails
@@ -668,7 +678,7 @@ function createMockApiResponse<TData>(
  *   sendWelcomeEmail: true,
  *   validateEmailDomain: true
  * });
- * 
+ *
  * console.log(`Created user: ${newUser.username}`);
  * ```
  */
@@ -681,7 +691,7 @@ async function createUser(
 
 /**
  * Configuration interface for the API client.
- * 
+ *
  * @interface ApiClientConfig
  * @property baseUrl - The base URL for all API requests
  * @property timeout - Request timeout in milliseconds (default: 30000)
@@ -691,17 +701,17 @@ async function createUser(
 interface ApiClientConfig {
   /** The base URL for all API requests */
   baseUrl: string;
-  
+
   /** Request timeout in milliseconds */
   timeout?: number;
-  
+
   /** Number of retry attempts for failed requests */
   retries?: number;
-  
+
   /** Authentication API key for requests */
   apiKey: string;
 }
-```
+````
 
 ## Project Configuration
 
@@ -719,23 +729,23 @@ interface ApiClientConfig {
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
-    
+
     // Module resolution
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    
+
     // JavaScript support
     "allowJs": true,
     "checkJs": false,
-    
+
     // Emit settings
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    
+
     // Advanced options
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
@@ -789,6 +799,7 @@ interface ApiClientConfig {
 **Type safety is paramount.** Never use `any` types or type assertions to "solve" type errors. Instead, invest time in properly defining types, using type guards for safe type narrowing, and leveraging TypeScript's powerful type system to catch errors at compile time rather than runtime.
 
 **Key mantras to remember:**
+
 - If you need `any`, you probably need `unknown` + type guards
 - If you need `as`, you probably need a type guard function
 - If you need `!`, you probably need an explicit null check

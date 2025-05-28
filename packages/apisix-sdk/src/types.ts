@@ -6,18 +6,36 @@ export interface ApisixResponse<T> {
     createdIndex?: number;
     modifiedIndex?: number;
   };
+  // v3.x format
+  key?: string;
+  value?: T;
+  createdIndex?: number;
+  modifiedIndex?: number;
   action?: string;
 }
 
 export interface ApisixListResponse<T> {
   total?: number;
-  list: Array<{
+  list?: Array<{
     key: string;
     value: T;
     createdIndex?: number;
     modifiedIndex?: number;
   }>;
   has_more?: boolean;
+  // Legacy v2.x format
+  node?: {
+    key: string;
+    nodes: Array<{
+      key: string;
+      value: T;
+      createdIndex?: number;
+      modifiedIndex?: number;
+    }>;
+    dir?: boolean;
+  };
+  count?: number;
+  action?: string;
 }
 
 export interface ListOptions {
@@ -181,6 +199,7 @@ export interface Upstream {
 
 // Consumer types
 export interface Consumer {
+  id?: string;
   username: string;
   desc?: string;
   plugins?: Record<string, unknown>;
@@ -470,4 +489,91 @@ export interface FilterOptions extends ListOptions {
   name?: string;
   label?: string;
   uri?: string;
+}
+
+// Proto types for gRPC protobuf definitions (New in APISIX 3.0+)
+export interface Proto {
+  id?: string;
+  desc?: string;
+  content: string; // Protobuf definition content
+  labels?: Record<string, string>;
+  create_time?: number;
+  update_time?: number;
+}
+
+// Prometheus metrics types
+export interface PrometheusMetrics {
+  metrics: string; // Raw Prometheus metrics format
+}
+
+// Request/Connection statistics types
+export interface RequestStatistics {
+  total_requests: number;
+  requests_per_second: number;
+  average_response_time: number;
+  error_rate: number;
+}
+
+export interface ConnectionStatistics {
+  active_connections: number;
+  total_connections: number;
+  requests_per_connection: number;
+}
+
+// Consumer Credential types
+export interface ConsumerCredential {
+  id?: string;
+  plugins: Record<string, unknown>;
+  desc?: string;
+  create_time?: number;
+  update_time?: number;
+}
+
+// Discovery types
+export interface DiscoveryDumpNode {
+  host: string;
+  port: number;
+  weight: number;
+  default_weight: number;
+  id: string;
+  client: Record<string, unknown>;
+  service: {
+    host: string;
+    port: number;
+    proto: string;
+    enable_ipv6: boolean;
+  };
+}
+
+export interface DiscoveryDump {
+  services: Record<string, DiscoveryDumpNode[]>;
+}
+
+export interface DiscoveryDumpFile {
+  path: string;
+  size: number;
+  last_modified: string;
+}
+
+// Version Management types
+export interface VersionConfig {
+  version: string;
+  supportsCredentials: boolean;
+  supportsSecrets: boolean;
+  supportsNewResponseFormat: boolean;
+  supportsStreamRoutes: boolean;
+  supportedPlugins: string[];
+  deprecatedFeatures: string[];
+}
+
+export interface MigrationRecommendations {
+  newFeatures: string[];
+  deprecatedFeatures: string[];
+  breakingChanges: string[];
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
 }

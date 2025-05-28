@@ -9,5 +9,8 @@ export default defineBuildConfig({
     esbuild: {
       minify: true,
     },
+    output: {
+      exports: "named",
+    },
   },
 });

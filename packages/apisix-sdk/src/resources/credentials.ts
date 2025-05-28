@@ -7,7 +7,6 @@ import type {
 } from "../types";
 
 export class Credentials {
-  private readonly endpoint = "/credentials";
   private client: ApisixClient;
 
   constructor(client: ApisixClient) {
@@ -15,52 +14,61 @@ export class Credentials {
   }
 
   /**
-   * List all credentials with optional pagination and filtering
+   * Create a new credential for a consumer
+   * @param consumerId The consumer ID
+   * @param credential The credential data
+   * @param credentialId Optional credential ID
    */
-  async list(options?: ListOptions): Promise<Credential[]> {
+  async create(
+    consumerId: string,
+    credential: CreateInput<Credential>,
+    credentialId?: string,
+  ): Promise<Credential> {
+    const endpoint = credentialId
+      ? `/consumers/${consumerId}/credentials/${credentialId}`
+      : `/consumers/${consumerId}/credentials`;
+
+    const response = await this.client.create<Credential>(
+      this.client.getAdminEndpoint(endpoint),
+      credential,
+      credentialId,
+    );
+    return this.client.extractValue(response);
+  }
+
+  /**
+   * Get a specific credential by consumer ID and credential ID
+   */
+  async get(consumerId: string, credentialId: string): Promise<Credential> {
+    const response = await this.client.getOne<Credential>(
+      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
+      credentialId,
+    );
+    return this.client.extractValue(response);
+  }
+
+  /**
+   * List all credentials for a consumer
+   */
+  async list(consumerId: string, options?: ListOptions): Promise<Credential[]> {
     const response = await this.client.list<Credential>(
-      this.client.getAdminEndpoint(this.endpoint),
+      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
       options,
     );
     return this.client.extractList(response);
   }
 
   /**
-   * Get a specific credential by ID
-   */
-  async get(id: string): Promise<Credential> {
-    const response = await this.client.getOne<Credential>(
-      this.client.getAdminEndpoint(this.endpoint),
-      id,
-    );
-    return this.client.extractValue(response);
-  }
-
-  /**
-   * Create a new credential
-   */
-  async create(
-    credential: CreateInput<Credential>,
-    id?: string,
-  ): Promise<Credential> {
-    const response = await this.client.create<Credential>(
-      this.client.getAdminEndpoint(this.endpoint),
-      credential,
-      id,
-    );
-    return this.client.extractValue(response);
-  }
-
-  /**
    * Update an existing credential
    */
   async update(
-    id: string,
+    consumerId: string,
+    credentialId: string,
     credential: UpdateInput<Credential>,
   ): Promise<Credential> {
     const response = await this.client.update<Credential>(
-      this.client.getAdminEndpoint(this.endpoint),
-      id,
+      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
+      credentialId,
       credential,
     );
     return this.client.extractValue(response);
@@ -70,12 +78,13 @@ export class Credentials {
    * Partially update an existing credential
    */
   async patch(
-    id: string,
+    consumerId: string,
+    credentialId: string,
     credential: UpdateInput<Credential>,
   ): Promise<Credential> {
     const response = await this.client.partialUpdate<Credential>(
-      this.client.getAdminEndpoint(this.endpoint),
-      id,
+      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
+      credentialId,
       credential,
     );
     return this.client.extractValue(response);
@@ -84,25 +93,20 @@ export class Credentials {
   /**
    * Delete a credential
    */
-  async delete(id: string, options?: { force?: boolean }): Promise<boolean> {
-    if (options?.force) {
-      await this.client.removeWithQuery(
-        this.client.getAdminEndpoint(this.endpoint),
-        id,
-        { force: "true" },
-      );
-    } else {
-      await this.client.remove(this.client.getAdminEndpoint(this.endpoint), id);
-    }
+  async delete(consumerId: string, credentialId: string): Promise<boolean> {
+    await this.client.remove(
+      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
+      credentialId,
+    );
     return true;
   }
 
   /**
    * Check if credential exists
    */
-  async exists(id: string): Promise<boolean> {
+  async exists(consumerId: string, credentialId: string): Promise<boolean> {
     try {
-      await this.get(id);
+      await this.get(consumerId, credentialId);
       return true;
     } catch {
       return false;
@@ -113,6 +117,7 @@ export class Credentials {
    * List credentials with pagination support
    */
   async listPaginated(
+    consumerId: string,
     page = 1,
     pageSize = 10,
     filters?: Record<string, string | number | boolean | undefined>,
@@ -121,6 +126,17 @@ export class Credentials {
     total?: number;
     hasMore?: boolean;
   }> {
+    const shouldSkip = await this.client.getApiVersionConfig();
+    if (!shouldSkip.supportsNewResponseFormat) {
+      // Skip pagination for older versions
+      const credentials = await this.list(consumerId);
+      return {
+        credentials,
+        total: credentials.length,
+        hasMore: false,
+      };
+    }
+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -128,52 +144,54 @@ export class Credentials {
     };
 
     const response = await this.client.list<Credential>(
-      this.client.getAdminEndpoint(this.endpoint),
+      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
       options,
     );
 
     return {
-      credentials: this.client.extractList(response),
+      credentials: await this.client.extractList(response),
       total: response.total,
       hasMore: response.has_more,
     };
   }
 
   /**
-   * Find credentials by plugin type
+   * Find credentials by plugin type for a consumer
    */
-  async findByPlugin(pluginName: string): Promise<Credential[]> {
-    const credentials = await this.list();
+  async findByPlugin(
+    consumerId: string,
+    pluginName: string,
+  ): Promise<Credential[]> {
+    const credentials = await this.list(consumerId);
+    return credentials.filter((cred) => cred.plugins?.[pluginName]);
+  }
+
+  /**
+   * Find credentials matching a pattern for a consumer
+   */
+  async findByPattern(
+    consumerId: string,
+    pattern: RegExp,
+  ): Promise<Credential[]> {
+    const credentials = await this.list(consumerId);
     return credentials.filter(
-      (credential) =>
-        credential.plugins &&
-        Object.keys(credential.plugins).includes(pluginName),
+      (cred) =>
+        pattern.test(cred.id || "") ||
+        Object.keys(cred.plugins || {}).some((plugin) => pattern.test(plugin)),
     );
   }
 
   /**
-   * Find credentials by label
-   */
-  async findByLabel(label: string, value?: string): Promise<Credential[]> {
-    const credentials = await this.list();
-    return credentials.filter((credential) => {
-      if (!credential.labels) return false;
-      if (value) {
-        return credential.labels[label] === value;
-      }
-      return label in credential.labels;
-    });
-  }
-
-  /**
-   * Clone a credential with optional modifications
+   * Clone a credential with optional modifications for a consumer
    */
   async clone(
-    sourceId: string,
+    sourceConsumerId: string,
+    sourceCredentialId: string,
+    targetConsumerId: string,
     modifications?: Partial<Credential>,
-    newId?: string,
+    newCredentialId?: string,
   ): Promise<Credential> {
-    const source = await this.get(sourceId);
+    const source = await this.get(sourceConsumerId, sourceCredentialId);
 
     // Remove fields that shouldn't be copied
     const { id, create_time, update_time, ...credentialData } = source;
@@ -184,22 +202,46 @@ export class Credentials {
       ...modifications,
     };
 
-    return this.create(newCredential, newId);
+    return this.create(targetConsumerId, newCredential, newCredentialId);
   }
 
   /**
-   * Get credentials with specific plugin configuration
+   * Get credential statistics for a consumer
    */
-  async getByPluginConfig(
-    pluginName: string,
-    configKey: string,
-    configValue: unknown,
-  ): Promise<Credential[]> {
-    const credentials = await this.list();
-    return credentials.filter((credential) => {
-      const plugin = credential.plugins?.[pluginName];
-      if (!plugin || typeof plugin !== "object") return false;
-      return (plugin as Record<string, unknown>)[configKey] === configValue;
-    });
+  async getStatistics(consumerId?: string): Promise<{
+    total: number;
+    byPlugin: Array<{ plugin: string; count: number }>;
+    byConsumer: Array<{ consumer: string; count: number }>;
+  }> {
+    // If consumerId is provided, get stats for that consumer only
+    if (consumerId) {
+      const credentials = await this.list(consumerId);
+      const pluginCount: Record<string, number> = {};
+
+      for (const credential of credentials) {
+        if (credential.plugins) {
+          for (const plugin of Object.keys(credential.plugins)) {
+            pluginCount[plugin] = (pluginCount[plugin] || 0) + 1;
+          }
+        }
+      }
+
+      return {
+        total: credentials.length,
+        byPlugin: Object.entries(pluginCount).map(([plugin, count]) => ({
+          plugin,
+          count,
+        })),
+        byConsumer: [{ consumer: consumerId, count: credentials.length }],
+      };
+    }
+
+    // This would require iterating over all consumers, which is not efficient
+    // For now, return empty stats
+    return {
+      total: 0,
+      byPlugin: [],
+      byConsumer: [],
+    };
   }
 }

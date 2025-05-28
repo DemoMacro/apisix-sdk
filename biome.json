@@ -13,5 +13,17 @@
     "formatter": {
       "trailingCommas": "es5"
     }
-  }
+  },
+  "overrides": [
+    {
+      "include": ["playground/tests/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    }
+  ]
 }

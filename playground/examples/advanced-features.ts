@@ -1,7 +1,7 @@
 import { createClient, getClientConfig, validateConnection } from "../client";
 
 /**
- * Advanced APISIX SDK Features Example (APISIX 3.0+)
+ * Advanced APISIX SDK Features Example
  *
  * This example demonstrates advanced features in APISIX 3.0+:
  * - Credential Management
@@ -11,9 +11,7 @@ import { createClient, getClientConfig, validateConnection } from "../client";
  * - Control API
  */
 async function advancedFeaturesExample(): Promise<void> {
-  console.log(
-    "🚀 Starting Advanced APISIX SDK Features Example (APISIX 3.0+)\n",
-  );
+  console.log("🚀 Starting Advanced APISIX SDK Features Example\n");
 
   try {
     // Initialize client with configuration
@@ -63,7 +61,7 @@ async function advancedFeaturesExample(): Promise<void> {
       console.log();
     }
 
-    // === Credential Management (APISIX 3.0+) ===
+    // === Credential Management ===
     console.log("🔐 Testing Credential Management...");
     const credentialId = "test-credential-advanced";
 
@@ -96,7 +94,7 @@ async function advancedFeaturesExample(): Promise<void> {
       console.warn("⚠️  Credential management not available:", error);
     }
 
-    // === Secret Management (APISIX 3.0+) ===
+    // === Secret Management ===
     console.log("\n🔒 Testing Secret Management...");
     const secretId = "test-vault-secret";
 
@@ -119,7 +117,7 @@ async function advancedFeaturesExample(): Promise<void> {
       console.warn("⚠️  Secret management not available:", error);
     }
 
-    // === Stream Routes (APISIX 3.0+) ===
+    // === Stream Routes ===
     console.log("\n🌊 Testing Stream Routes...");
     const streamRouteId = "test-stream-route";
 

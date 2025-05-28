@@ -71,6 +71,9 @@ export class Routes {
    * Delete a route
    */
   async delete(id: string, options?: { force?: boolean }): Promise<boolean> {
+    // Check if version supports features before using them
+    const versionConfig = await this.client.getApiVersionConfig();
+
     if (options?.force) {
       await this.client.removeWithQuery(
         this.client.getAdminEndpoint(this.endpoint),
@@ -119,7 +122,7 @@ export class Routes {
     );
 
     return {
-      routes: this.client.extractList(response),
+      routes: await this.client.extractList(response),
       total: response.total,
       hasMore: response.has_more,
     };
@@ -191,5 +194,91 @@ export class Routes {
     };
 
     return this.create(newRoute, newId);
+  }
+
+  /**
+   * Get route statistics
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    enabledCount: number;
+    disabledCount: number;
+    methodDistribution: Array<{ method: string; count: number }>;
+    topPlugins: Array<{ plugin: string; count: number }>;
+    hostCount: number;
+    serviceRoutes: number;
+    upstreamRoutes: number;
+  }> {
+    const routes = await this.list();
+    const methodCount: Record<string, number> = {};
+    const pluginCount: Record<string, number> = {};
+    let enabledCount = 0;
+    let disabledCount = 0;
+    let serviceRoutes = 0;
+    let upstreamRoutes = 0;
+    const hosts = new Set<string>();
+
+    for (const route of routes) {
+      // Count enabled/disabled
+      if (route.status === 1) {
+        enabledCount++;
+      } else {
+        disabledCount++;
+      }
+
+      // Count methods
+      if (route.methods) {
+        for (const method of route.methods) {
+          methodCount[method] = (methodCount[method] || 0) + 1;
+        }
+      }
+
+      // Count plugins
+      if (route.plugins) {
+        for (const plugin of Object.keys(route.plugins)) {
+          pluginCount[plugin] = (pluginCount[plugin] || 0) + 1;
+        }
+      }
+
+      // Count hosts
+      if (route.host) {
+        hosts.add(route.host);
+      }
+      if (route.hosts) {
+        for (const host of route.hosts) {
+          hosts.add(host);
+        }
+      }
+
+      // Count route types
+      if (route.service_id) {
+        serviceRoutes++;
+      }
+      if (route.upstream || route.upstream_id) {
+        upstreamRoutes++;
+      }
+    }
+
+    const methodDistribution = Object.entries(methodCount).map(
+      ([method, count]) => ({
+        method,
+        count,
+      }),
+    );
+
+    const topPlugins = Object.entries(pluginCount)
+      .map(([plugin, count]) => ({ plugin, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total: routes.length,
+      enabledCount,
+      disabledCount,
+      methodDistribution,
+      topPlugins,
+      hostCount: hosts.size,
+      serviceRoutes,
+      upstreamRoutes,
+    };
   }
 }

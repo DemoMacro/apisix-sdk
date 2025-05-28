@@ -1,35 +1,13 @@
 import type { ApisixClient } from "../client";
 import type {
+  DiscoveryDump,
+  DiscoveryDumpFile,
+  DiscoveryDumpNode,
   HealthCheckStatus,
   PluginInfo,
   ServerInfo,
   UpstreamHealth,
 } from "../types";
-
-export interface DiscoveryDumpNode {
-  host: string;
-  port: number;
-  weight: number;
-  default_weight: number;
-  id: string;
-  client: Record<string, unknown>;
-  service: {
-    host: string;
-    port: number;
-    proto: string;
-    enable_ipv6: boolean;
-  };
-}
-
-export interface DiscoveryDump {
-  services: Record<string, DiscoveryDumpNode[]>;
-}
-
-export interface DiscoveryDumpFile {
-  path: string;
-  size: number;
-  last_modified: string;
-}
 
 export class Control {
   private client: ApisixClient;
@@ -369,6 +347,51 @@ export class Control {
   async getMemoryStats(): Promise<Record<string, unknown>> {
     return this.client.get<Record<string, unknown>>(
       this.client.getControlEndpoint("/v1/memory_stats"),
+    );
+  }
+
+  /**
+   * Get Prometheus metrics (from Control API)
+   */
+  async getPrometheusMetrics(): Promise<string> {
+    return this.client.get<string>(
+      this.client.getControlEndpoint("/apisix/prometheus/metrics"),
+    );
+  }
+
+  /**
+   * Get request statistics
+   */
+  async getRequestStatistics(): Promise<Record<string, unknown>> {
+    return this.client.get<Record<string, unknown>>(
+      this.client.getControlEndpoint("/v1/requests"),
+    );
+  }
+
+  /**
+   * Get connection statistics
+   */
+  async getConnectionStatistics(): Promise<Record<string, unknown>> {
+    return this.client.get<Record<string, unknown>>(
+      this.client.getControlEndpoint("/v1/connections"),
+    );
+  }
+
+  /**
+   * Health check endpoint
+   */
+  async healthCheck(): Promise<HealthCheckStatus> {
+    return this.client.get<HealthCheckStatus>(
+      this.client.getControlEndpoint("/v1/healthcheck"),
+    );
+  }
+
+  /**
+   * Trigger plugins reload
+   */
+  async reloadPlugins(): Promise<{ message: string }> {
+    return this.client.put<{ message: string }>(
+      this.client.getControlEndpoint("/v1/plugins/reload"),
     );
   }
 }

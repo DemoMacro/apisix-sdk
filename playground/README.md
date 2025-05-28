@@ -252,7 +252,7 @@ const route = await client.routes.create({
 ### Advanced Features Tests (`tests/advanced.test.ts`)
 
 - Control API features
-- Credential management (APISIX 3.0+)
+- Credential management
 - Secret management (Vault/AWS/GCP)
 - Stream Routes (TCP/UDP/TLS)
 - Pagination and Filtering

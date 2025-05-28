@@ -1,11 +1,9 @@
-# Apache APISIX SDK for Node.js
+# Apache APISIX SDK
 
-A modern TypeScript/JavaScript SDK for Apache APISIX, providing comprehensive support for both Admin API and Control API.
+![GitHub](https://img.shields.io/github/license/DemoMacro/everything-client)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](https://www.contributor-covenant.org/version/2/1/code_of_conduct/)
 
-[![npm version](https://img.shields.io/npm/v/apisix-sdk)](https://www.npmjs.com/package/apisix-sdk)
-[![npm downloads](https://img.shields.io/npm/dw/apisix-sdk)](https://www.npmjs.com/package/apisix-sdk)
-[![license](https://img.shields.io/npm/l/apisix-sdk)](https://github.com/DemoMacro/apisix-sdk/blob/main/LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue)](https://www.typescriptlang.org/)
+> A comprehensive TypeScript/JavaScript SDK for [Apache APISIX](https://apisix.apache.org/) API Gateway. This SDK provides complete access to both the Admin API and Control API, making it easy to manage routes, services, upstreams, consumers, SSL certificates, plugins, and more.
 
 ## Features
 
@@ -29,8 +27,6 @@ yarn add apisix-sdk
 ```
 
 ## Quick Start
-
-### Basic Usage
 
 ```typescript
 import { ApisixSDK } from "apisix-sdk";
@@ -58,23 +54,10 @@ const route = await client.routes.create({
   },
 });
 
-// List all routes
-const routes = await client.routes.list();
-console.log(`Found ${routes.length} routes`);
-
-// Get specific route
-const specificRoute = await client.routes.get(route.id!);
-
-// Update route
-await client.routes.update(route.id!, {
-  desc: "Updated API route",
-});
-
-// Delete route
-await client.routes.delete(route.id!);
+console.log("Route created:", route.id);
 ```
 
-### Configuration Options
+## Configuration
 
 ```typescript
 const client = new ApisixSDK({
@@ -88,294 +71,13 @@ const client = new ApisixSDK({
 });
 ```
 
-## API Documentation
+## Documentation
 
-### Routes Management
+For detailed API documentation and usage examples, please refer to:
 
-#### Basic Operations
-
-```typescript
-// List routes
-const routes = await client.routes.list();
-
-// Paginated listing
-const { routes, total, hasMore } = await client.routes.listPaginated(1, 10);
-
-// Get specific route
-const route = await client.routes.get("route-id");
-
-// Create route
-const newRoute = await client.routes.create({
-  name: "api-route",
-  uri: "/api/*",
-  methods: ["GET", "POST"],
-  upstream: {
-    type: "roundrobin",
-    nodes: { "127.0.0.1:8080": 1 },
-  },
-});
-
-// Update route
-const updatedRoute = await client.routes.update("route-id", {
-  desc: "Updated description",
-});
-
-// Partial update
-await client.routes.patch("route-id", { priority: 10 });
-
-// Delete route
-await client.routes.delete("route-id");
-```
-
-#### Advanced Operations
-
-```typescript
-// Search routes
-const apiRoutes = await client.routes.findByUri("/api");
-const getRoutes = await client.routes.findByMethod("GET");
-const hostRoutes = await client.routes.findByHost("api.example.com");
-
-// Enable/disable routes
-await client.routes.enable("route-id");
-await client.routes.disable("route-id");
-
-// Check existence
-const exists = await client.routes.exists("route-id");
-
-// Clone route
-const cloned = await client.routes.clone("source-id", {
-  name: "cloned-route",
-  uri: "/new-path/*",
-});
-```
-
-#### Complex Route Configuration
-
-```typescript
-const complexRoute = await client.routes.create({
-  name: "complex-api",
-  uri: "/api/v1/users",
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  hosts: ["api.example.com"],
-  vars: [
-    ["arg_version", "==", "v1"],
-    ["http_user_agent", "~*", "Mozilla.*"],
-  ],
-  priority: 100,
-  upstream: {
-    type: "chash",
-    hash_on: "header",
-    key: "user-id",
-    nodes: [
-      { host: "127.0.0.1", port: 8080, weight: 1 },
-      { host: "127.0.0.1", port: 8081, weight: 2 },
-    ],
-    checks: {
-      active: {
-        type: "http",
-        http_path: "/health",
-        timeout: 5,
-        healthy: {
-          interval: 10,
-          successes: 2,
-        },
-        unhealthy: {
-          interval: 5,
-          http_failures: 3,
-        },
-      },
-    },
-  },
-  plugins: {
-    "rate-limit": {
-      count: 100,
-      time_window: 60,
-      rejected_code: 429,
-    },
-    cors: {
-      allow_origins: "*",
-      allow_methods: "GET,POST,PUT,DELETE",
-      allow_headers: "Content-Type,Authorization",
-    },
-    "jwt-auth": {
-      secret: "my-secret-key",
-    },
-  },
-  enable_websocket: false,
-  status: 1,
-});
-```
-
-### Services Management
-
-```typescript
-// Create service
-const service = await client.services.create({
-  name: "user-service",
-  upstream: {
-    type: "roundrobin",
-    nodes: { "127.0.0.1:8080": 1 },
-  },
-  plugins: {
-    "rate-limit": {
-      count: 200,
-      time_window: 60,
-    },
-  },
-});
-
-// List services
-const services = await client.services.list();
-
-// Update service
-await client.services.update("service-id", {
-  desc: "Updated service",
-});
-```
-
-### Upstreams Management
-
-```typescript
-// Create upstream with health checks
-const upstream = await client.upstreams.create({
-  name: "backend-cluster",
-  type: "roundrobin",
-  nodes: [
-    { host: "127.0.0.1", port: 8080, weight: 1 },
-    { host: "127.0.0.1", port: 8081, weight: 2 },
-  ],
-  checks: {
-    active: {
-      type: "http",
-      http_path: "/health",
-      timeout: 5,
-      healthy: {
-        interval: 10,
-        successes: 2,
-      },
-    },
-  },
-});
-
-// Update upstream nodes
-await client.upstreams.patch("upstream-id", {
-  nodes: {
-    "127.0.0.1:8082": 1, // Add new node
-  },
-});
-```
-
-### Consumers and Authentication
-
-```typescript
-// Create consumer
-const consumer = await client.consumers.create({
-  username: "api-user",
-  desc: "API user for mobile app",
-});
-
-// Add authentication credentials
-await client.consumers.createCredential("api-user", "key-auth-1", {
-  plugins: {
-    "key-auth": {
-      key: "user-api-key",
-    },
-  },
-});
-
-// List consumer credentials
-const credentials = await client.consumers.listCredentials("api-user");
-```
-
-### SSL Certificates
-
-```typescript
-// Create SSL certificate
-const ssl = await client.ssl.create({
-  cert: "-----BEGIN CERTIFICATE-----\n...",
-  key: "-----BEGIN PRIVATE KEY-----\n...",
-  snis: ["api.example.com", "*.api.example.com"],
-});
-
-// List SSL certificates
-const certificates = await client.ssl.list();
-```
-
-### Control API Usage
-
-```typescript
-// Health monitoring
-const health = await client.control.healthCheck();
-console.log("APISIX Status:", health.status);
-
-// Server information
-const serverInfo = await client.control.getServerInfo();
-console.log("Version:", serverInfo.version);
-console.log("Uptime:", serverInfo.up_time);
-
-// Upstream health
-const upstreamHealth = await client.control.getUpstreamHealth();
-upstreamHealth.forEach((upstream) => {
-  console.log(`Upstream: ${upstream.name}`);
-  upstream.nodes.forEach((node) => {
-    console.log(`  ${node.host}:${node.port} - ${node.status}`);
-  });
-});
-
-// Prometheus metrics
-const metrics = await client.control.getPrometheusMetrics();
-console.log("Metrics:", metrics);
-```
-
-## Error Handling
-
-```typescript
-try {
-  const route = await client.routes.get("non-existent-id");
-} catch (error) {
-  if (error.message.includes("APISIX API Error")) {
-    console.log("APISIX specific error:", error.message);
-  } else {
-    console.log("Network or other error:", error.message);
-  }
-}
-```
-
-## Advanced Features
-
-### Pagination
-
-```typescript
-// Using built-in pagination
-const { routes, total, hasMore } = await client.routes.listPaginated(2, 25);
-console.log(
-  `Page 2: ${routes.length} routes, Total: ${total}, Has more: ${hasMore}`,
-);
-
-// Manual pagination
-const routes = await client.routes.list({
-  page: 1,
-  page_size: 10,
-});
-```
-
-### Filtering
-
-```typescript
-// Filter routes by name and URI
-const filteredRoutes = await client.routes.list({
-  name: "api",
-  uri: "/v1",
-  label: "env:prod",
-});
-```
-
-### Force Operations
-
-```typescript
-// Force delete (even if resource is in use)
-await client.upstreams.delete("upstream-id", { force: true });
-```
+- **[Admin API Documentation](./docs/en/admin-api.md)** - Complete guide to APISIX Admin API
+- **[Control API Documentation](./docs/en/control-api.md)** - Control API for monitoring and management
+- **[Examples](./playground/)** - Practical usage examples
 
 ## Development
 
@@ -388,18 +90,12 @@ apisix-sdk/
 │   │   ├── types.ts         # TypeScript type definitions
 │   │   ├── client.ts        # HTTP client
 │   │   ├── resources/       # Resource managers
-│   │   │   ├── routes.ts    # Routes management
-│   │   │   ├── services.ts  # Services management
-│   │   │   └── ...          # Other resources
 │   │   └── index.ts         # Main entry point
 │   └── package.json
 ├── docs/                    # Documentation
 │   ├── en/                  # English documentation
-│   │   ├── admin-api.md     # Admin API documentation
-│   │   └── control-api.md   # Control API documentation
 │   └── zh/                  # Chinese documentation
 ├── playground/              # Examples and testing
-│   └── example.ts           # Usage examples
 └── package.json
 ```
 
@@ -425,31 +121,6 @@ pnpm dev
 cd playground
 npx tsx example.ts
 ```
-
-## API Reference
-
-### Admin API Resources
-
-- **Routes**: `/apisix/admin/routes` - Route management
-- **Services**: `/apisix/admin/services` - Service configuration
-- **Upstreams**: `/apisix/admin/upstreams` - Backend server management
-- **Consumers**: `/apisix/admin/consumers` - API consumer management
-- **SSL**: `/apisix/admin/ssls` - SSL certificate management
-- **Plugins**: `/apisix/admin/plugins` - Plugin configuration
-- **Global Rules**: `/apisix/admin/global_rules` - Global plugin rules
-- **Consumer Groups**: `/apisix/admin/consumer_groups` - Consumer grouping
-- **Plugin Configs**: `/apisix/admin/plugin_configs` - Reusable plugin configs
-- **Stream Routes**: `/apisix/admin/stream_routes` - TCP/UDP routing
-- **Secrets**: `/apisix/admin/secrets` - Secret management
-
-### Control API Endpoints
-
-- **Health**: `/v1/healthcheck` - Health monitoring
-- **Server Info**: `/v1/server_info` - Runtime information
-- **Schemas**: `/v1/schema` - Configuration schemas
-- **Plugins**: `/v1/plugins` - Plugin information
-- **Metrics**: `/apisix/prometheus/metrics` - Prometheus metrics
-- **Discovery**: `/v1/discovery` - Service discovery
 
 ## Requirements
 
@@ -489,4 +160,4 @@ We welcome contributions! Please follow these steps:
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) file for details.
+- [MIT](LICENSE) &copy; [Demo Macro](https://imst.xyz/)

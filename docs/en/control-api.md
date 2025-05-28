@@ -1,58 +1,96 @@
 # Apache APISIX Control API Documentation
 
-The Apache APISIX Control API provides runtime information, health checks, monitoring data, and operational insights about your APISIX instance. Unlike the Admin API which manages configuration, the Control API is focused on real-time status information and debugging capabilities.
+The Apache APISIX Control API provides monitoring, health checking, and runtime information endpoints. This SDK provides comprehensive access to all Control API features with full TypeScript support.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Configuration](#configuration)
+- [Health Monitoring](#health-monitoring)
+- [Server Information](#server-information)
+- [Schema Management](#schema-management)
+- [Plugin Information](#plugin-information)
+- [Metrics and Monitoring](#metrics-and-monitoring)
+- [Discovery Services](#discovery-services)
+- [System Overview](#system-overview)
+- [Error Handling](#error-handling)
+- [Examples](#examples)
 
 ## Overview
 
-The Control API exposes various operational endpoints that help monitor APISIX runtime status, plugin information, health checks, and debugging data. It's primarily used for monitoring, troubleshooting, and integrating with external monitoring systems.
-
-## Configuration
+The Control API is designed for monitoring and managing APISIX runtime status. Unlike the Admin API which is used for configuration management, the Control API provides read-only access to runtime information, health status, and metrics.
 
 ### Base Configuration
 
-- **Default Port**: 9090
-- **Default Base Path**: `/`
-- **Access**: Usually unrestricted (configure for security)
-- **Authentication**: Generally not required
+- **Default Port**: 9090 (configurable)
+- **Default Base Path**: `/v1`
+- **Protocol**: HTTP/HTTPS
+- **Authentication**: Usually not required (internal use)
 
-### Setup Configuration (config.yaml)
+### Enabling Control API
+
+The Control API is enabled by default but can be configured in `config.yaml`:
 
 ```yaml
 apisix:
   enable_control: true
   control:
-    ip: "127.0.0.1" # Control API listen IP
-    port: 9090 # Control API port
-    router: # Optional: enable parameter matching
-      match:
-        - "/v1/plugin/example-plugin/hello"
+    ip: "0.0.0.0"
+    port: 9090
 ```
+
+## Configuration
 
 ### SDK Configuration
 
 ```typescript
+import { ApisixSDK } from "apisix-sdk";
+
 const client = new ApisixSDK({
-  baseURL: "http://127.0.0.1:9090", // Control API port
-  // No API key required for most endpoints
+  baseURL: "http://127.0.0.1:9180", // Admin API URL
+  controlURL: "http://127.0.0.1:9090", // Control API URL (optional)
+  apiKey: "your-api-key",
 });
 ```
 
-## Core Endpoints
+### Control API Interface
+
+```typescript
+interface ControlAPI {
+  healthCheck(): Promise<HealthCheckStatus>;
+  getServerInfo(): Promise<ServerInfo>;
+  getSchemas(): Promise<SchemaInfo>;
+  getPlugins(): Promise<PluginList>;
+  getPrometheusMetrics(): Promise<PrometheusMetrics>;
+  getUpstreamHealth(): Promise<UpstreamHealth[]>;
+  getDiscoveryServices(): Promise<DiscoveryServices>;
+  getDiscoveryDump(): Promise<DiscoveryDump>;
+  getSystemOverview(): Promise<SystemOverview>;
+}
+```
+
+## Health Monitoring
 
 ### Health Check
 
-Monitor the health status of APISIX instance and upstreams.
-
-#### Health Check Operations
-
-- `GET /v1/healthcheck` - Get overall health status
-- `GET /v1/healthcheck/upstreams` - Get all upstream health status
-- `GET /v1/healthcheck/upstreams/{upstream_id}` - Get specific upstream health
-
-#### Health Check Interfaces
+Monitor the overall health status of APISIX.
 
 ```typescript
-interface HealthCheck {
+// Basic health check
+const health = await client.control.healthCheck();
+
+console.log("Status:", health.status); // "ok" | "error"
+if (health.info) {
+  console.log("Version:", health.info.version);
+  console.log("Hostname:", health.info.hostname);
+  console.log("Uptime:", health.info.up_time);
+}
+```
+
+#### Health Check Response
+
+```typescript
+interface HealthCheckStatus {
   status: "ok" | "error";
   info?: {
     version: string;
@@ -60,11 +98,43 @@ interface HealthCheck {
     up_time: number;
   };
 }
+```
+
+### Upstream Health
+
+Monitor the health status of upstream nodes.
+
+```typescript
+// Get upstream health status
+const upstreamHealth = await client.control.getUpstreamHealth();
+
+upstreamHealth.forEach((upstream) => {
+  console.log(`Upstream: ${upstream.name}`);
+  console.log(`Type: ${upstream.type}`);
+
+  upstream.nodes.forEach((node) => {
+    console.log(`  ${node.host}:${node.port} - ${node.status}`);
+    console.log(`    Success: ${node.counter.success}`);
+    console.log(`    HTTP Failures: ${node.counter.http_failure}`);
+    console.log(`    TCP Failures: ${node.counter.tcp_failure}`);
+    console.log(`    Timeouts: ${node.counter.timeout_failure}`);
+  });
+});
+```
+
+#### Upstream Health Response
+
+```typescript
+interface UpstreamHealth {
+  name: string;
+  type: "http" | "https" | "tcp";
+  nodes: UpstreamHealthNode[];
+}
 
 interface UpstreamHealthNode {
   host: string;
   port: number;
-  status: "healthy" | "unhealthy";
+  status: "healthy" | "unhealthy" | "mostly_healthy" | "mostly_unhealthy";
   counter: {
     http_failure: number;
     tcp_failure: number;
@@ -72,620 +142,500 @@ interface UpstreamHealthNode {
     success: number;
   };
 }
-
-interface UpstreamHealth {
-  name: string;
-  nodes: UpstreamHealthNode[];
-}
 ```
 
-#### Health Check Examples
+## Server Information
 
-```bash
-# Check overall health
-curl http://127.0.0.1:9090/v1/healthcheck
+Get detailed information about the APISIX server instance.
 
-# Check upstream health
-curl http://127.0.0.1:9090/v1/healthcheck/upstreams
+```typescript
+// Get server information
+const serverInfo = await client.control.getServerInfo();
 
-# Check specific upstream
-curl http://127.0.0.1:9090/v1/healthcheck/upstreams/1
+console.log("Hostname:", serverInfo.hostname);
+console.log("Version:", serverInfo.version);
+console.log("Boot Time:", new Date(serverInfo.boot_time * 1000));
+console.log("Uptime:", serverInfo.up_time, "seconds");
+console.log("Last Report:", new Date(serverInfo.last_report_time * 1000));
+console.log("etcd Version:", serverInfo.etcd_version);
 ```
 
-### Server Information
-
-Get detailed server information and runtime statistics.
-
-#### Server Info Operations
-
-- `GET /v1/server_info` - Get comprehensive server information
-- `GET /v1/upstreams` - List all upstreams with real-time status
-- `GET /v1/upstreams/{upstream_id}` - Get specific upstream runtime info
-
-#### Server Info Interface
+### Server Info Response
 
 ```typescript
 interface ServerInfo {
-  hostname: string; // Server hostname
-  version: string; // APISIX version
-  up_time: number; // Uptime in seconds
-  boot_time: number; // Boot timestamp
-  last_report_time: number; // Last report timestamp
-  etcd_version: string; // etcd version
-}
-```
-
-#### Server Info Examples
-
-```bash
-# Get server information
-curl http://127.0.0.1:9090/v1/server_info -s | jq .
-
-# Example response
-{
-  "hostname": "apisix-server",
-  "version": "3.12.0",
-  "up_time": 3600,
-  "boot_time": 1701234567,
-  "last_report_time": 1701238167,
-  "etcd_version": "3.5.4"
-}
-```
-
-### Schema Information
-
-Retrieve schema definitions for resources and plugins.
-
-#### Schema Operations
-
-- `GET /v1/schema` - Get all available schemas
-- `GET /v1/schema/route` - Get route schema
-- `GET /v1/schema/service` - Get service schema
-- `GET /v1/schema/upstream` - Get upstream schema
-- `GET /v1/schema/consumer` - Get consumer schema
-- `GET /v1/schema/ssl` - Get SSL schema
-- `GET /v1/schema/plugin/{plugin_name}` - Get specific plugin schema
-
-#### Schema Examples
-
-```bash
-# Get all schemas
-curl http://127.0.0.1:9090/v1/schema
-
-# Get route schema
-curl http://127.0.0.1:9090/v1/schema/route
-
-# Get plugin schema
-curl http://127.0.0.1:9090/v1/schema/plugin/rate-limit
-```
-
-### Plugin Information
-
-Access plugin-related information and metadata.
-
-#### Plugin Operations
-
-- `GET /v1/plugins` - List all loaded plugins
-- `GET /v1/plugin/{plugin_name}` - Get specific plugin information
-- `GET /v1/plugin_metadatas` - Get all plugin metadata
-- `GET /v1/plugin_metadata/{plugin_name}` - Get specific plugin metadata
-
-#### Plugin Interface
-
-```typescript
-interface PluginInfo {
-  name: string;
+  hostname: string;
   version: string;
-  priority: number;
-  schema: object;
-  disable?: boolean;
-}
-
-interface PluginMetadata {
-  id: string;
-  [key: string]: any; // Plugin-specific metadata
+  up_time: number;
+  boot_time: number;
+  last_report_time: number;
+  etcd_version: string;
 }
 ```
 
-#### Plugin Examples
+## Schema Management
 
-```bash
-# List all plugins
-curl http://127.0.0.1:9090/v1/plugins
-
-# Get plugin metadata
-curl http://127.0.0.1:9090/v1/plugin_metadatas
-
-# Example response
-[
-  {
-    "log_format": {
-      "upstream_response_time": "$upstream_response_time"
-    },
-    "id": "file-logger"
-  },
-  {
-    "ikey": 1,
-    "skey": "val",
-    "id": "example-plugin"
-  }
-]
-```
-
-### Runtime Configuration
-
-Access current runtime configuration and active resources.
-
-#### Configuration Operations
-
-- `GET /v1/config` - Get current APISIX configuration
-- `GET /v1/routes` - List active routes
-- `GET /v1/routes/{route_id}` - Get specific route runtime info
-- `GET /v1/services` - List active services
-- `GET /v1/services/{service_id}` - Get specific service runtime info
-
-#### Configuration Examples
-
-```bash
-# Get current configuration
-curl http://127.0.0.1:9090/v1/config
-
-# List active routes
-curl http://127.0.0.1:9090/v1/routes
-
-# Get specific route info
-curl http://127.0.0.1:9090/v1/routes/1
-```
-
-### Service Discovery
-
-Monitor service discovery endpoints and configurations.
-
-#### Discovery Operations
-
-- `GET /v1/discovery` - List all discovery services
-- `GET /v1/discovery/{service_name}/dump` - Get service discovery dump
-- `GET /v1/discovery/{service_name}/show_dump_file` - Show service dump file
-
-#### Discovery Examples
-
-```bash
-# Get discovery dump
-curl http://127.0.0.1:9090/v1/discovery/kubernetes/dump
-
-# Example response showing discovered services
-{
-  "endpoints": [
-    {
-      "endpoints": [
-        {
-          "value": "{\"https\":[{\"host\":\"172.18.164.170\",\"port\":6443,\"weight\":50}]}",
-          "name": "default/kubernetes"
-        }
-      ],
-      "id": "first"
-    }
-  ],
-  "config": [
-    {
-      "default_weight": 50,
-      "id": "first",
-      "client": {
-        "token": "xxx"
-      },
-      "service": {
-        "host": "172.18.164.170",
-        "port": "6443",
-        "schema": "https"
-      }
-    }
-  ]
-}
-
-# Show dump file
-curl http://127.0.0.1:9090/v1/discovery/kubernetes/show_dump_file
-
-# Example response
-{
-  "services": {
-    "service_a": [
-      {
-        "host": "172.19.5.12",
-        "port": 8000,
-        "weight": 120
-      },
-      {
-        "host": "172.19.5.13",
-        "port": 8000,
-        "weight": 120
-      }
-    ]
-  },
-  "expire": 0,
-  "last_update": 1615877468
-}
-```
-
-### Metrics and Monitoring
-
-Access Prometheus metrics and monitoring data.
-
-#### Metrics Operations
-
-- `GET /apisix/prometheus/metrics` - Get Prometheus metrics
-- `GET /v1/requests` - Get request statistics
-- `GET /v1/connections` - Get connection statistics
-
-#### Metrics Examples
-
-```bash
-# Get Prometheus metrics
-curl http://127.0.0.1:9090/apisix/prometheus/metrics
-
-# Example metrics (Prometheus format)
-# TYPE apisix_http_requests_total counter
-apisix_http_requests_total{code="200",route="1",matched_uri="/api/*",matched_host="api.example.com",node="127.0.0.1:8080"} 1543
-
-# TYPE apisix_http_latency histogram
-apisix_http_latency_bucket{type="request",route="1",le="1"} 1000
-apisix_http_latency_bucket{type="request",route="1",le="2"} 1500
-
-# TYPE apisix_upstream_status gauge
-apisix_upstream_status{name="backend-cluster",ip="127.0.0.1",port="8080"} 1
-```
-
-### Debug and Development
-
-Development and debugging utilities.
-
-#### Debug Operations
-
-- `GET /v1/gc` - Trigger garbage collection (development only)
-- `GET /v1/debug` - Get debug information
-
-#### Debug Examples
-
-```bash
-# Trigger garbage collection
-curl http://127.0.0.1:9090/v1/gc
-
-# Get debug info
-curl http://127.0.0.1:9090/v1/debug
-```
-
-### Custom Plugin Control APIs
-
-Plugins can register custom control endpoints for administrative tasks.
-
-#### Plugin Control Examples
-
-```bash
-# Example custom plugin endpoint
-curl http://127.0.0.1:9090/v1/plugin/example-plugin/hello
-
-# With JSON response
-curl "http://127.0.0.1:9090/v1/plugin/example-plugin/hello?json=true"
-```
-
-## Response Formats
-
-### Success Response
-
-```json
-{
-  "status": "ok",
-  "data": {
-    // ... response data
-  }
-}
-```
-
-### Error Response
-
-```json
-{
-  "status": "error",
-  "message": "Error description"
-}
-```
-
-### List Response
-
-```json
-{
-  "total": 10,
-  "list": [
-    // ... array of items
-  ]
-}
-```
-
-## SDK Usage Examples
-
-### Check APISIX Health
+Access configuration schemas for validation and documentation.
 
 ```typescript
-const healthStatus = await client.control.healthCheck();
-console.log("APISIX Status:", healthStatus.status);
+// Get all schemas
+const schemas = await client.control.getSchemas();
 
-if (healthStatus.info) {
-  console.log("Version:", healthStatus.info.version);
-  console.log("Uptime:", healthStatus.info.up_time, "seconds");
-}
-```
+// Main resource schemas
+console.log("Route schema:", schemas.main.route.properties);
+console.log("Upstream schema:", schemas.main.upstream.properties);
+console.log("Service schema:", schemas.main.service.properties);
 
-### Monitor Upstream Health
-
-```typescript
-const upstreamHealth = await client.control.getUpstreamHealth();
-upstreamHealth.forEach((upstream) => {
-  console.log(`Upstream: ${upstream.name}`);
-  upstream.nodes.forEach((node) => {
-    console.log(`  ${node.host}:${node.port} - ${node.status}`);
-    console.log(`    Failures: ${node.counter.http_failure}`);
-    console.log(`    Successes: ${node.counter.success}`);
+// Plugin schemas
+Object.entries(schemas.plugins).forEach(([name, schema]) => {
+  console.log(`Plugin ${name}:`, {
+    type: schema.type,
+    priority: schema.priority,
+    version: schema.version,
   });
 });
-```
 
-### Get Server Information
-
-```typescript
-const serverInfo = await client.control.getServerInfo();
-console.log(`APISIX Version: ${serverInfo.version}`);
-console.log(`Hostname: ${serverInfo.hostname}`);
-console.log(`Uptime: ${serverInfo.up_time} seconds`);
-console.log(`etcd Version: ${serverInfo.etcd_version}`);
-```
-
-### List Active Routes
-
-```typescript
-const activeRoutes = await client.control.getRoutes();
-console.log(`Active routes: ${activeRoutes.length}`);
-
-activeRoutes.forEach((route) => {
-  console.log(`Route ${route.id}: ${route.uri} [${route.methods?.join(", ")}]`);
+// Stream plugin schemas
+Object.entries(schemas["stream-plugins"]).forEach(([name, schema]) => {
+  console.log(`Stream plugin ${name}:`, schema);
 });
 ```
 
-### Get Plugin Information
+### Schema Info Response
 
 ```typescript
-// List all plugins
+interface SchemaInfo {
+  main: {
+    route: { properties: object };
+    upstream: { properties: object };
+    service: { properties: object };
+    consumer: { properties: object };
+    ssl: { properties: object };
+    [key: string]: { properties: object };
+  };
+  plugins: Record<
+    string,
+    {
+      consumer_schema?: object;
+      metadata_schema?: object;
+      schema?: object;
+      type?: string;
+      priority?: number;
+      version?: number;
+    }
+  >;
+  "stream-plugins": Record<string, object>;
+}
+```
+
+## Plugin Information
+
+Get information about available plugins and their status.
+
+```typescript
+// Get plugin list
 const plugins = await client.control.getPlugins();
-console.log(
-  "Available plugins:",
-  plugins.map((p) => p.name),
-);
 
-// Get plugin metadata
-const metadata = await client.control.getPluginMetadata();
-console.log("Plugin metadata:", metadata);
+Object.entries(plugins).forEach(([name, enabled]) => {
+  console.log(`Plugin ${name}: ${enabled ? "enabled" : "disabled"}`);
+});
 
-// Get specific plugin schema
-const schema = await client.control.getPluginSchema("rate-limit");
-console.log("Rate limit schema:", schema);
+// Check specific plugin
+if (plugins["limit-count"]) {
+  console.log("Rate limiting is available");
+}
 ```
 
-### Monitor Prometheus Metrics
+### Plugin List Response
 
 ```typescript
+interface PluginList {
+  [pluginName: string]: boolean;
+}
+```
+
+## Metrics and Monitoring
+
+### Prometheus Metrics
+
+Get Prometheus-formatted metrics for monitoring and alerting.
+
+```typescript
+// Get Prometheus metrics
 const metrics = await client.control.getPrometheusMetrics();
-console.log("Prometheus metrics format:");
-console.log(metrics);
 
-// Parse metrics for custom monitoring
-const requestCount = parseMetric(metrics, "apisix_http_requests_total");
-const latency = parseMetric(metrics, "apisix_http_latency");
+console.log("Raw metrics:", metrics.metrics);
+
+// Parse metrics for specific values
+const lines = metrics.metrics.split("\n");
+const httpRequests = lines.find((line) =>
+  line.startsWith("apisix_http_requests_total"),
+);
+console.log("HTTP requests metric:", httpRequests);
 ```
 
-### Service Discovery Integration
+### Prometheus Metrics Response
 
 ```typescript
-// Get discovery dump for Kubernetes
-const k8sDump = await client.control.getDiscoveryDump("kubernetes");
-console.log("Discovered services:", k8sDump.endpoints.length);
+interface PrometheusMetrics {
+  metrics: string; // Raw Prometheus metrics format
+}
+```
 
-// Show current service endpoints
-const dumpFile = await client.control.getDiscoveryDumpFile("kubernetes");
-Object.entries(dumpFile.services).forEach(([name, endpoints]) => {
-  console.log(`Service ${name}:`);
-  endpoints.forEach((endpoint) => {
-    console.log(
-      `  ${endpoint.host}:${endpoint.port} (weight: ${endpoint.weight})`,
-    );
-  });
+### System Overview
+
+Get a comprehensive overview of system status and statistics.
+
+```typescript
+// Get system overview
+const overview = await client.control.getSystemOverview();
+
+console.log("System Overview:", {
+  totalRoutes: overview.routes?.total,
+  totalServices: overview.services?.total,
+  totalUpstreams: overview.upstreams?.total,
+  totalConsumers: overview.consumers?.total,
+  healthyUpstreams: overview.upstreams?.healthy,
+  unhealthyUpstreams: overview.upstreams?.unhealthy,
 });
 ```
 
-## Use Cases
+## Discovery Services
 
-### Health Monitoring and Alerting
+Monitor service discovery integration and status.
+
+### Discovery Services Status
 
 ```typescript
-// Automated health check for monitoring systems
-async function healthCheck() {
-  try {
-    const health = await client.control.healthCheck();
+// Get discovery services
+const discovery = await client.control.getDiscoveryServices();
 
-    if (health.status !== "ok") {
-      // Send alert
-      await sendAlert("APISIX is unhealthy", health);
-      return false;
+console.log("Discovery Services:");
+Object.entries(discovery.services).forEach(([serviceName, nodes]) => {
+  console.log(`Service: ${serviceName}`);
+  nodes.forEach((node) => {
+    console.log(`  ${node.host}:${node.port} (weight: ${node.weight})`);
+  });
+});
+
+console.log("Last Update:", new Date(discovery.last_update * 1000));
+console.log("Expires:", new Date(discovery.expire * 1000));
+```
+
+### Discovery Services Response
+
+```typescript
+interface DiscoveryServices {
+  services: Record<
+    string,
+    Array<{
+      host: string;
+      port: number;
+      weight: number;
+    }>
+  >;
+  expire: number;
+  last_update: number;
+}
+```
+
+### Discovery Dump
+
+Get detailed discovery service configuration and endpoints.
+
+```typescript
+// Get discovery dump
+const dump = await client.control.getDiscoveryDump();
+
+console.log("Discovery Endpoints:");
+dump.endpoints.forEach((endpoint) => {
+  console.log(`ID: ${endpoint.id}`);
+  endpoint.endpoints.forEach((ep) => {
+    console.log(`  ${ep.name}: ${ep.value}`);
+  });
+});
+
+console.log("Discovery Config:");
+dump.config.forEach((config) => {
+  console.log(`Service ID: ${config.id}`);
+  console.log(`Default Weight: ${config.default_weight}`);
+  console.log(`Service: ${config.service.host}:${config.service.port}`);
+});
+```
+
+### Discovery Dump Response
+
+```typescript
+interface DiscoveryDump {
+  endpoints: Array<{
+    endpoints: Array<{
+      value: string;
+      name: string;
+    }>;
+    id: string;
+  }>;
+  config: Array<{
+    default_weight: number;
+    id: string;
+    client: Record<string, unknown>;
+    service: {
+      host: string;
+      port: string;
+      schema: string;
+    };
+    shared_size: string;
+  }>;
+}
+```
+
+## Error Handling
+
+```typescript
+try {
+  const health = await client.control.healthCheck();
+  if (health.status === "error") {
+    console.error("APISIX is not healthy");
+    // Handle unhealthy state
+  }
+} catch (error) {
+  console.error("Failed to check health:", error.message);
+  // Handle network or other errors
+}
+```
+
+## Examples
+
+### Complete Health Monitoring
+
+```typescript
+async function monitorApisixHealth() {
+  try {
+    // Check overall health
+    const health = await client.control.healthCheck();
+    console.log("APISIX Health:", health.status);
+
+    if (health.status === "error") {
+      console.error("APISIX is unhealthy!");
+      return;
     }
+
+    // Get server info
+    const serverInfo = await client.control.getServerInfo();
+    console.log(
+      `APISIX ${serverInfo.version} running on ${serverInfo.hostname}`,
+    );
+    console.log(`Uptime: ${Math.floor(serverInfo.up_time / 3600)} hours`);
 
     // Check upstream health
-    const upstreams = await client.control.getUpstreamHealth();
-    const unhealthyUpstreams = upstreams.filter((u) =>
-      u.nodes.some((n) => n.status === "unhealthy"),
+    const upstreamHealth = await client.control.getUpstreamHealth();
+    const unhealthyUpstreams = upstreamHealth.filter((upstream) =>
+      upstream.nodes.some(
+        (node) =>
+          node.status === "unhealthy" || node.status === "mostly_unhealthy",
+      ),
     );
 
     if (unhealthyUpstreams.length > 0) {
-      await sendAlert("Unhealthy upstreams detected", unhealthyUpstreams);
-      return false;
+      console.warn(
+        `${unhealthyUpstreams.length} upstreams have unhealthy nodes`,
+      );
+      unhealthyUpstreams.forEach((upstream) => {
+        console.warn(`Upstream ${upstream.name} has issues`);
+      });
     }
 
-    return true;
+    // Get system overview
+    const overview = await client.control.getSystemOverview();
+    console.log("System Stats:", {
+      routes: overview.routes?.total || 0,
+      services: overview.services?.total || 0,
+      upstreams: overview.upstreams?.total || 0,
+      consumers: overview.consumers?.total || 0,
+    });
   } catch (error) {
-    await sendAlert("Control API unreachable", error);
-    return false;
+    console.error("Health monitoring failed:", error.message);
   }
 }
+
+// Run monitoring every 30 seconds
+setInterval(monitorApisixHealth, 30000);
 ```
 
-### Performance Monitoring
+### Plugin and Schema Information
 
 ```typescript
-// Monitor request metrics
-async function monitorPerformance() {
-  const metrics = await client.control.getPrometheusMetrics();
-
-  // Parse metrics
-  const totalRequests = parsePrometheusMetric(
-    metrics,
-    "apisix_http_requests_total",
-  );
-  const latencyBuckets = parsePrometheusMetric(
-    metrics,
-    "apisix_http_latency_bucket",
-  );
-
-  // Calculate performance indicators
-  const requestRate = calculateRequestRate(totalRequests);
-  const p99Latency = calculatePercentile(latencyBuckets, 99);
-
-  // Store in monitoring system
-  await storeMetrics({
-    timestamp: Date.now(),
-    request_rate: requestRate,
-    p99_latency: p99Latency,
-  });
-}
-```
-
-### Development and Debugging
-
-```typescript
-// Debug route configuration
-async function debugRoute(routeId: string) {
+async function getPluginInfo() {
   try {
-    // Get route from control API
-    const routeInfo = await client.control.getRoute(routeId);
-    console.log("Route runtime info:", routeInfo);
+    // Get available plugins
+    const plugins = await client.control.getPlugins();
+    const enabledPlugins = Object.entries(plugins)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name);
 
-    // Get schema for validation
-    const schema = await client.control.getSchema("route");
-    console.log("Route schema:", schema);
+    console.log("Enabled Plugins:", enabledPlugins);
 
-    // Check server info
-    const serverInfo = await client.control.getServerInfo();
-    console.log("APISIX version:", serverInfo.version);
-  } catch (error) {
-    console.error("Debug failed:", error);
-  }
-}
-```
+    // Get schemas for validation
+    const schemas = await client.control.getSchemas();
 
-### Load Balancer Integration
+    // Check if specific plugins are available
+    const requiredPlugins = ["limit-count", "cors", "jwt-auth"];
+    const missingPlugins = requiredPlugins.filter((plugin) => !plugins[plugin]);
 
-```typescript
-// Health check endpoint for load balancers
-app.get("/health", async (req, res) => {
-  try {
-    const health = await client.control.healthCheck();
+    if (missingPlugins.length > 0) {
+      console.warn("Missing required plugins:", missingPlugins);
+    }
 
-    if (health.status === "ok") {
-      res.status(200).json({ status: "healthy" });
-    } else {
-      res.status(503).json({ status: "unhealthy" });
+    // Get plugin schema for validation
+    const limitCountSchema = schemas.plugins["limit-count"];
+    if (limitCountSchema) {
+      console.log("Rate limiting plugin schema:", limitCountSchema.schema);
     }
   } catch (error) {
-    res.status(503).json({ status: "unhealthy", error: error.message });
-  }
-});
-```
-
-## Integration Patterns
-
-### Prometheus Integration
-
-The Control API provides native Prometheus metrics that can be scraped:
-
-```yaml
-# prometheus.yml
-scrape_configs:
-  - job_name: "apisix"
-    static_configs:
-      - targets: ["apisix:9090"]
-    metrics_path: "/apisix/prometheus/metrics"
-    scrape_interval: 15s
-```
-
-### Grafana Dashboard
-
-Use the Prometheus metrics to build comprehensive Grafana dashboards:
-
-- Request rates and error rates
-- Response time percentiles
-- Upstream health status
-- Active connections
-- Plugin-specific metrics
-
-### Custom Monitoring Solutions
-
-```typescript
-// Custom monitoring integration
-class ApisixMonitor {
-  private client: ApisixSDK;
-
-  constructor(controlApiUrl: string) {
-    this.client = new ApisixSDK({ baseURL: controlApiUrl });
-  }
-
-  async collectMetrics() {
-    const [health, serverInfo, upstreams, metrics] = await Promise.all([
-      this.client.control.healthCheck(),
-      this.client.control.getServerInfo(),
-      this.client.control.getUpstreamHealth(),
-      this.client.control.getPrometheusMetrics(),
-    ]);
-
-    return {
-      timestamp: Date.now(),
-      health: health.status === "ok",
-      uptime: serverInfo.up_time,
-      version: serverInfo.version,
-      unhealthyUpstreams: upstreams.filter((u) =>
-        u.nodes.some((n) => n.status === "unhealthy"),
-      ).length,
-      rawMetrics: metrics,
-    };
+    console.error("Failed to get plugin info:", error.message);
   }
 }
 ```
 
-### Service Discovery Integration
+### Metrics Collection
 
 ```typescript
-// Integrate with service discovery
-async function syncServiceDiscovery() {
-  const discoveryServices = await client.control.getDiscoveryServices();
+async function collectMetrics() {
+  try {
+    // Get Prometheus metrics
+    const metrics = await client.control.getPrometheusMetrics();
 
-  for (const service of discoveryServices) {
-    const dump = await client.control.getDiscoveryDump(service);
+    // Parse specific metrics
+    const lines = metrics.metrics.split("\n");
 
-    // Update external service registry
-    await updateServiceRegistry(service, dump.endpoints);
+    // Extract HTTP request metrics
+    const httpRequestLines = lines.filter((line) =>
+      line.startsWith("apisix_http_requests_total"),
+    );
+
+    console.log("HTTP Request Metrics:");
+    httpRequestLines.forEach((line) => {
+      const match = line.match(/apisix_http_requests_total\{([^}]+)\}\s+(\d+)/);
+      if (match) {
+        const labels = match[1];
+        const value = match[2];
+        console.log(`  ${labels}: ${value} requests`);
+      }
+    });
+
+    // Extract latency metrics
+    const latencyLines = lines.filter((line) =>
+      line.startsWith("apisix_http_latency"),
+    );
+
+    console.log("Latency Metrics:");
+    latencyLines.forEach((line) => {
+      console.log(`  ${line}`);
+    });
+  } catch (error) {
+    console.error("Failed to collect metrics:", error.message);
+  }
+}
+```
+
+### Discovery Service Monitoring
+
+```typescript
+async function monitorDiscoveryServices() {
+  try {
+    // Get discovery services
+    const discovery = await client.control.getDiscoveryServices();
+
+    console.log("Discovery Services Status:");
+    console.log(`Last Update: ${new Date(discovery.last_update * 1000)}`);
+    console.log(`Expires: ${new Date(discovery.expire * 1000)}`);
+
+    // Check service health
+    Object.entries(discovery.services).forEach(([serviceName, nodes]) => {
+      console.log(`\nService: ${serviceName}`);
+      console.log(`  Nodes: ${nodes.length}`);
+
+      nodes.forEach((node, index) => {
+        console.log(
+          `    ${index + 1}. ${node.host}:${node.port} (weight: ${node.weight})`,
+        );
+      });
+    });
+
+    // Get detailed dump
+    const dump = await client.control.getDiscoveryDump();
+
+    console.log("\nDiscovery Configuration:");
+    dump.config.forEach((config) => {
+      console.log(`  Service: ${config.id}`);
+      console.log(`    Host: ${config.service.host}:${config.service.port}`);
+      console.log(`    Schema: ${config.service.schema}`);
+      console.log(`    Default Weight: ${config.default_weight}`);
+    });
+  } catch (error) {
+    console.error("Failed to monitor discovery services:", error.message);
   }
 }
 ```
 
 ## Best Practices
 
-1. **Monitoring**: Set up automated health checks using Control API endpoints
-2. **Alerting**: Configure alerts based on health status and metrics
-3. **Security**: Restrict Control API access in production environments
-4. **Performance**: Cache frequently accessed data like schemas and plugin info
-5. **Integration**: Use Control API for read-only monitoring, Admin API for configuration changes
-6. **Debugging**: Leverage Control API endpoints for troubleshooting runtime issues
+### Monitoring Strategy
+
+1. **Regular Health Checks**: Implement periodic health monitoring
+2. **Upstream Monitoring**: Monitor upstream node health status
+3. **Metrics Collection**: Collect and analyze Prometheus metrics
+4. **Alerting**: Set up alerts for unhealthy states
+5. **Discovery Monitoring**: Monitor service discovery status
+
+### Performance Considerations
+
+1. **Caching**: Cache schema and plugin information
+2. **Rate Limiting**: Don't overwhelm the Control API with requests
+3. **Error Handling**: Implement proper error handling and retries
+4. **Logging**: Log monitoring activities for debugging
+
+### Integration Examples
+
+```typescript
+// Integration with monitoring systems
+class ApisixMonitor {
+  private client: ApisixSDK;
+  private alerting: AlertingService;
+
+  constructor(client: ApisixSDK, alerting: AlertingService) {
+    this.client = client;
+    this.alerting = alerting;
+  }
+
+  async startMonitoring() {
+    setInterval(async () => {
+      try {
+        const health = await this.client.control.healthCheck();
+
+        if (health.status === "error") {
+          await this.alerting.sendAlert("APISIX is unhealthy", "critical");
+        }
+
+        const upstreamHealth = await this.client.control.getUpstreamHealth();
+        const unhealthyCount = upstreamHealth.filter((u) =>
+          u.nodes.some((n) => n.status.includes("unhealthy")),
+        ).length;
+
+        if (unhealthyCount > 0) {
+          await this.alerting.sendAlert(
+            `${unhealthyCount} upstreams have unhealthy nodes`,
+            "warning",
+          );
+        }
+      } catch (error) {
+        await this.alerting.sendAlert(
+          `Monitoring failed: ${error.message}`,
+          "error",
+        );
+      }
+    }, 30000); // Check every 30 seconds
+  }
+}
+```
+
+For more examples and advanced usage, see the [playground directory](../../playground/).

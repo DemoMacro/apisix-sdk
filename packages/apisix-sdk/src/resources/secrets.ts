@@ -229,7 +229,7 @@ export class Secrets {
 
   async findSecretsByPrefix(prefix: string): Promise<VaultSecret[]> {
     const secrets = await this.listVaultSecrets();
-    return secrets.filter((secret) => secret.prefix.startsWith(prefix));
+    return secrets.filter((secret) => secret.prefix?.startsWith(prefix));
   }
 
   /**

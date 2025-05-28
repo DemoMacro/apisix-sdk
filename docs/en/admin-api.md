@@ -1,12 +1,32 @@
 # Apache APISIX Admin API Documentation
 
-The Apache APISIX Admin API provides RESTful endpoints for managing all aspects of your API gateway configuration. This SDK covers all major Admin API functionalities.
+The Apache APISIX Admin API provides RESTful endpoints for managing all aspects of your API gateway configuration. This SDK covers all major Admin API functionalities with full TypeScript support.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Configuration](#configuration)
+- [Core Resources](#core-resources)
+  - [Routes](#routes)
+  - [Services](#services)
+  - [Upstreams](#upstreams)
+  - [Consumers](#consumers)
+  - [SSL Certificates](#ssl-certificates)
+  - [Plugins](#plugins)
+  - [Global Rules](#global-rules)
+  - [Consumer Groups](#consumer-groups)
+  - [Plugin Configs](#plugin-configs)
+  - [Stream Routes](#stream-routes)
+  - [Secrets](#secrets)
+  - [Credentials](#credentials)
+  - [Protos](#protos)
+- [API Features](#api-features)
+- [Error Handling](#error-handling)
+- [Examples](#examples)
 
 ## Overview
 
 The Admin API allows users to control their deployed Apache APISIX instance through RESTful endpoints. It provides complete management capabilities for routes, services, upstreams, consumers, SSL certificates, plugins, and other APISIX resources.
-
-## Configuration
 
 ### Base Configuration
 
@@ -20,108 +40,35 @@ The Admin API allows users to control their deployed Apache APISIX instance thro
 All Admin API requests require authentication using the `X-API-KEY` header:
 
 ```typescript
+import { ApisixSDK } from "apisix-sdk";
+
 const client = new ApisixSDK({
   baseURL: "http://127.0.0.1:9180",
   apiKey: "edd1c9f034335f136f87ad84b625c8f1", // Change in production!
+  timeout: 30000,
 });
 ```
 
-### Admin API Configuration (config.yaml)
+## Configuration
 
-```yaml
-deployment:
-  admin:
-    admin_key:
-      - name: admin
-        key: edd1c9f034335f136f87ad84b625c8f1 # Change this in production!
-        role: admin
-    allow_admin: # IP access control
-      - 127.0.0.0/24
-    admin_listen:
-      ip: 0.0.0.0 # Specific IP for Admin API
-      port: 9180 # Specific port for Admin API
+### SDK Configuration Options
+
+```typescript
+interface ApisixSDKConfig {
+  baseURL: string; // APISIX Admin API base URL
+  apiKey?: string; // API key for authentication
+  timeout?: number; // Request timeout in milliseconds (default: 30000)
+  headers?: Record<string, string>; // Additional headers
+}
 ```
 
 ### Environment Variables
 
-You can use environment variables in configuration:
-
-```yaml
-deployment:
-  admin:
-    admin_key:
-      - name: admin
-        key: ${{ADMIN_KEY:=edd1c9f034335f136f87ad84b625c8f1}}
-        role: admin
-```
-
-### Force Delete
-
-Add `force=true` query parameter to delete resources even if they are in use:
-
-```bash
-curl "http://127.0.0.1:9180/apisix/admin/upstreams/1?force=true" \
-  -H "X-API-KEY: $admin_key" -X DELETE
-```
-
-## API v3 Features
-
-### New Response Format
-
-**Single Resource Response:**
-
-```json
-{
-  "modifiedIndex": 2685183,
-  "value": {
-    "id": "1"
-    // ... resource data
-  },
-  "key": "/apisix/routes/1",
-  "createdIndex": 2684956
-}
-```
-
-**Multiple Resources Response:**
-
-```json
-{
-  "list": [
-    {
-      "modifiedIndex": 2685183,
-      "value": {
-        "id": "1"
-        // ... resource data
-      },
-      "key": "/apisix/routes/1",
-      "createdIndex": 2684956
-    }
-  ],
-  "total": 2
-}
-```
-
-### Pagination Support
-
-Use pagination for list operations:
-
-```bash
-curl "http://127.0.0.1:9180/apisix/admin/routes?page=1&page_size=10" \
-  -H "X-API-KEY: $admin_key" -X GET
-```
-
-**Pagination Parameters:**
-
-- `page`: Page number (default: 1)
-- `page_size`: Items per page (default: 10, range: [1, 500])
-
-### Filtering Support
-
-Filter resources by name, label, URI, etc.:
-
-```bash
-curl 'http://127.0.0.1:9180/apisix/admin/routes?name=test&uri=foo&label=env:prod' \
-  -H "X-API-KEY: $admin_key" -X GET
+```typescript
+const client = new ApisixSDK({
+  baseURL: process.env.APISIX_BASE_URL || "http://127.0.0.1:9180",
+  apiKey: process.env.APISIX_API_KEY,
+});
 ```
 
 ## Core Resources
@@ -130,16 +77,7 @@ curl 'http://127.0.0.1:9180/apisix/admin/routes?name=test&uri=foo&label=env:prod
 
 Routes define how incoming requests are matched and handled.
 
-#### Route Operations
-
-- `GET /apisix/admin/routes` - List all routes
-- `GET /apisix/admin/routes/{id}` - Get specific route
-- `POST /apisix/admin/routes` - Create new route
-- `PUT /apisix/admin/routes/{id}` - Create or update route
-- `PATCH /apisix/admin/routes/{id}` - Partially update route
-- `DELETE /apisix/admin/routes/{id}` - Delete route
-
-#### Route Schema
+#### Route Interface
 
 ```typescript
 interface Route {
@@ -155,119 +93,147 @@ interface Route {
   remote_addrs?: string[]; // Multiple client IPs
   vars?: Array<[string, string, string]>; // Conditional matching
   filter_func?: string; // Custom Lua function
-  plugins?: Record<string, any>; // Plugin configurations
+  plugins?: Record<string, unknown>; // Plugin configurations
   upstream?: Upstream; // Inline upstream
   upstream_id?: string; // Reference to upstream
   service_id?: string; // Reference to service
+  plugin_config_id?: string; // Reference to plugin config
   priority?: number; // Route priority (default: 0)
   enable_websocket?: boolean; // Enable WebSocket
   timeout?: {
-    // Timeout settings
     connect?: number;
     send?: number;
     read?: number;
   };
   status?: 0 | 1; // 0=disabled, 1=enabled
+  labels?: Record<string, string>;
   create_time?: number;
   update_time?: number;
 }
 ```
 
-#### Example Route Configuration
+#### Route Operations
 
-```json
-{
-  "name": "api-route",
-  "uri": "/api/v1/*",
-  "methods": ["GET", "POST"],
-  "hosts": ["api.example.com"],
-  "vars": [["arg_version", "==", "v1"]],
-  "priority": 100,
-  "upstream": {
-    "type": "roundrobin",
-    "nodes": {
-      "127.0.0.1:8080": 1,
-      "127.0.0.1:8081": 2
-    }
+```typescript
+// List all routes
+const routes = await client.routes.list();
+
+// List with pagination
+const { routes, total, hasMore } = await client.routes.listPaginated(1, 10);
+
+// Get specific route
+const route = await client.routes.get("route-id");
+
+// Create new route
+const newRoute = await client.routes.create({
+  name: "api-route",
+  uri: "/api/v1/*",
+  methods: ["GET", "POST"],
+  upstream: {
+    type: "roundrobin",
+    nodes: { "127.0.0.1:8080": 1 },
   },
-  "plugins": {
-    "limit-count": {
-      "count": 100,
-      "time_window": 60
-    }
-  },
-  "enable_websocket": false,
-  "status": 1
-}
+});
+
+// Update route
+const updatedRoute = await client.routes.update("route-id", {
+  desc: "Updated description",
+});
+
+// Partial update
+await client.routes.patch("route-id", { priority: 10 });
+
+// Delete route
+await client.routes.delete("route-id");
+
+// Force delete (even if in use)
+await client.routes.delete("route-id", { force: true });
+
+// Check existence
+const exists = await client.routes.exists("route-id");
+
+// Enable/disable routes
+await client.routes.enable("route-id");
+await client.routes.disable("route-id");
+
+// Find routes by criteria
+const apiRoutes = await client.routes.findByUri("/api");
+const getRoutes = await client.routes.findByMethod("GET");
+const hostRoutes = await client.routes.findByHost("api.example.com");
+
+// Clone route
+const cloned = await client.routes.clone("source-id", {
+  name: "cloned-route",
+  uri: "/new-path/*",
+});
+
+// Get statistics
+const stats = await client.routes.getStatistics();
 ```
 
 ### Services
 
-Services provide abstraction for backend services with reusable configurations.
+Services provide an abstraction layer for upstream management.
 
-#### Service Operations
-
-- `GET /apisix/admin/services` - List all services
-- `GET /apisix/admin/services/{id}` - Get specific service
-- `POST /apisix/admin/services` - Create new service
-- `PUT /apisix/admin/services/{id}` - Create or update service
-- `PATCH /apisix/admin/services/{id}` - Partially update service
-- `DELETE /apisix/admin/services/{id}` - Delete service
-
-#### Service Schema
+#### Service Interface
 
 ```typescript
 interface Service {
   id?: string;
   name?: string;
   desc?: string;
-  upstream?: Upstream; // Inline upstream
-  upstream_id?: string; // Reference to upstream
-  plugins?: Record<string, any>; // Plugin configurations
-  hosts?: string[]; // Host restrictions
-  enable_websocket?: boolean; // Enable WebSocket
+  upstream?: Upstream;
+  upstream_id?: string;
+  plugins?: Record<string, unknown>;
+  plugin_config_id?: string;
+  hosts?: string[];
+  enable_websocket?: boolean;
+  labels?: Record<string, string>;
   create_time?: number;
   update_time?: number;
 }
 ```
 
-#### Example Service Configuration
+#### Service Operations
 
-```json
-{
-  "name": "user-service",
-  "desc": "User management service",
-  "plugins": {
-    "limit-count": {
-      "count": 200,
-      "time_window": 60,
-      "rejected_code": 503
-    }
+```typescript
+// List all services
+const services = await client.services.list();
+
+// Get specific service
+const service = await client.services.get("service-id");
+
+// Create service
+const newService = await client.services.create({
+  name: "user-service",
+  upstream: {
+    type: "roundrobin",
+    nodes: { "127.0.0.1:8080": 1 },
   },
-  "upstream": {
-    "type": "roundrobin",
-    "nodes": {
-      "127.0.0.1:1980": 1
-    }
-  },
-  "enable_websocket": true
-}
+});
+
+// Update service
+await client.services.update("service-id", {
+  desc: "Updated service",
+});
+
+// Delete service
+await client.services.delete("service-id");
+
+// Find services by name
+const userServices = await client.services.findByName("user");
+
+// Clone service
+const cloned = await client.services.clone("source-id", {
+  name: "cloned-service",
+});
 ```
 
 ### Upstreams
 
-Upstreams define backend server configurations with load balancing and health checking.
+Upstreams define backend server clusters with health checking and load balancing.
 
-#### Upstream Operations
-
-- `GET /apisix/admin/upstreams` - List all upstreams
-- `GET /apisix/admin/upstreams/{id}` - Get specific upstream
-- `POST /apisix/admin/upstreams` - Create new upstream
-- `PUT /apisix/admin/upstreams/{id}` - Create or update upstream
-- `PATCH /apisix/admin/upstreams/{id}` - Partially update upstream
-- `DELETE /apisix/admin/upstreams/{id}` - Delete upstream
-
-#### Upstream Schema
+#### Upstream Interface
 
 ```typescript
 interface Upstream {
@@ -275,228 +241,227 @@ interface Upstream {
   name?: string;
   desc?: string;
   type?: "roundrobin" | "chash" | "ewma" | "least_conn";
-  nodes?:
-    | Record<string, number>
-    | Array<{
-        // Backend nodes
-        host: string;
-        port: number;
-        weight: number;
-        priority?: number;
-        metadata?: Record<string, any>;
-      }>;
+  nodes?: Record<string, number> | UpstreamNode[];
+  service_name?: string;
+  discovery_type?: string;
   hash_on?: "vars" | "header" | "cookie" | "consumer";
-  key?: string; // Hash key
-  checks?: {
-    // Health checks
-    active?: {
-      type?: "http" | "https" | "tcp";
-      timeout?: number;
-      concurrency?: number;
-      http_path?: string;
-      https_verify_certificate?: boolean;
-      healthy?: {
-        interval?: number;
-        http_statuses?: number[];
-        successes?: number;
-      };
-      unhealthy?: {
-        interval?: number;
-        http_statuses?: number[];
-        http_failures?: number;
-        tcp_failures?: number;
-        timeouts?: number;
-      };
-    };
-    passive?: {
-      type?: "http" | "https" | "tcp";
-      healthy?: {
-        http_statuses?: number[];
-        successes?: number;
-      };
-      unhealthy?: {
-        http_statuses?: number[];
-        http_failures?: number;
-        tcp_failures?: number;
-        timeouts?: number;
-      };
-    };
-  };
-  retries?: number; // Retry attempts
-  retry_timeout?: number; // Retry timeout
+  key?: string;
+  checks?: HealthCheck;
+  retries?: number;
+  retry_timeout?: number;
   timeout?: {
-    // Request timeouts
     connect?: number;
     send?: number;
     read?: number;
   };
-  keepalive_pool?: {
-    // Connection pooling
-    size?: number;
-    idle_timeout?: number;
-    requests?: number;
-  };
-  scheme?: "http" | "https"; // Protocol scheme
-  tls?: {
-    // TLS configuration
-    client_cert?: string;
-    client_key?: string;
-  };
-  labels?: Record<string, string>; // Metadata labels
+  keepalive_pool?: KeepalivePool;
+  scheme?: "http" | "https" | "grpc" | "grpcs" | "tcp" | "udp" | "tls";
+  pass_host?: "pass" | "node" | "rewrite";
+  upstream_host?: string;
+  tls?: UpstreamTLS;
+  labels?: Record<string, string>;
   create_time?: number;
   update_time?: number;
 }
 ```
 
-#### Example Upstream Configuration
+#### Upstream Operations
 
-```json
-{
-  "name": "backend-cluster",
-  "desc": "Production backend cluster",
-  "type": "roundrobin",
-  "nodes": [
-    {
-      "host": "127.0.0.1",
-      "port": 8080,
-      "weight": 1
-    },
-    {
-      "host": "127.0.0.1",
-      "port": 8081,
-      "weight": 2
-    }
+```typescript
+// List all upstreams
+const upstreams = await client.upstreams.list();
+
+// Create upstream with health checks
+const upstream = await client.upstreams.create({
+  name: "backend-cluster",
+  type: "roundrobin",
+  nodes: [
+    { host: "127.0.0.1", port: 8080, weight: 1 },
+    { host: "127.0.0.1", port: 8081, weight: 2 },
   ],
-  "checks": {
-    "active": {
-      "type": "http",
-      "http_path": "/health",
-      "timeout": 5,
-      "healthy": {
-        "interval": 10,
-        "successes": 2
-      },
-      "unhealthy": {
-        "interval": 5,
-        "http_failures": 3
-      }
-    }
+  checks: {
+    active: {
+      type: "http",
+      http_path: "/health",
+      timeout: 5,
+      healthy: { interval: 10, successes: 2 },
+      unhealthy: { interval: 5, http_failures: 3 },
+    },
   },
-  "timeout": {
-    "connect": 15,
-    "send": 15,
-    "read": 15
-  },
-  "scheme": "http",
-  "labels": {
-    "env": "production",
-    "version": "v2"
-  }
-}
+});
+
+// Add/remove nodes
+await client.upstreams.addNode("upstream-id", "127.0.0.1", 8082, 1);
+await client.upstreams.removeNode("upstream-id", "127.0.0.1", 8082);
+
+// Update node weight
+await client.upstreams.updateNodeWeight("upstream-id", "127.0.0.1", 8080, 3);
+
+// Get statistics
+const stats = await client.upstreams.getStatistics();
 ```
 
 ### Consumers
 
-Consumers represent API clients that can be authenticated and authorized.
+Consumers represent API users with authentication credentials.
 
-#### Consumer Operations
-
-- `GET /apisix/admin/consumers` - List all consumers
-- `GET /apisix/admin/consumers/{username}` - Get specific consumer
-- `POST /apisix/admin/consumers` - Create new consumer
-- `PUT /apisix/admin/consumers/{username}` - Create or update consumer
-- `DELETE /apisix/admin/consumers/{username}` - Delete consumer
-
-#### Consumer Schema
+#### Consumer Interface
 
 ```typescript
 interface Consumer {
-  username: string; // Unique username
-  desc?: string; // Description
-  plugins?: Record<string, any>; // Authentication plugins
-  labels?: Record<string, string>; // Metadata labels
+  id?: string;
+  username: string;
+  desc?: string;
+  plugins?: Record<string, unknown>;
+  group_id?: string;
+  labels?: Record<string, string>;
   create_time?: number;
   update_time?: number;
 }
 ```
 
-#### Consumer Credentials
+#### Consumer Operations
 
-Manage consumer authentication credentials:
+```typescript
+// List all consumers
+const consumers = await client.consumers.list();
 
-- `GET /apisix/admin/consumers/{username}/credentials` - List credentials
-- `GET /apisix/admin/consumers/{username}/credentials/{id}` - Get credential
-- `PUT /apisix/admin/consumers/{username}/credentials/{id}` - Create/update credential
-- `DELETE /apisix/admin/consumers/{username}/credentials/{id}` - Delete credential
+// Create consumer
+const consumer = await client.consumers.create({
+  username: "api-user",
+  desc: "API user for mobile app",
+});
 
-#### Example Consumer Configuration
+// Add authentication plugins
+await client.consumers.addKeyAuth("api-user", "user-api-key-123");
+await client.consumers.addJwtAuth("api-user", "jwt-key", "secret");
+await client.consumers.addBasicAuth("api-user", "username", "password");
 
-```json
-{
-  "username": "api-user",
-  "desc": "API user for mobile app",
-  "plugins": {
-    "key-auth": {
-      "key": "user-api-key-123"
-    }
-  },
-  "labels": {
-    "team": "mobile",
-    "env": "production"
-  }
-}
+// List consumer credentials
+const credentials = await client.consumers.listCredentials("api-user");
+
+// Find consumers by group
+const groupConsumers = await client.consumers.findByGroup("premium-users");
 ```
 
 ### SSL Certificates
 
-SSL certificates for HTTPS configuration.
+SSL certificates for HTTPS termination.
 
-#### SSL Operations
-
-- `GET /apisix/admin/ssls` - List all SSL certificates
-- `GET /apisix/admin/ssls/{id}` - Get specific SSL certificate
-- `POST /apisix/admin/ssls` - Create new SSL certificate
-- `PUT /apisix/admin/ssls/{id}` - Create or update SSL certificate
-- `DELETE /apisix/admin/ssls/{id}` - Delete SSL certificate
-
-#### SSL Schema
+#### SSL Interface
 
 ```typescript
 interface SSL {
   id?: string;
-  cert: string; // Certificate content
-  key: string; // Private key content
-  snis?: string[]; // Server Name Indicators
-  labels?: Record<string, string>; // Metadata labels
-  status?: 0 | 1; // 0=disabled, 1=enabled
-  validity_start?: number; // Valid from timestamp
-  validity_end?: number; // Valid until timestamp
+  cert: string;
+  key: string;
+  certs?: string[];
+  keys?: string[];
+  snis?: string[];
+  client?: {
+    ca?: string;
+    depth?: number;
+    skip_mtls_uri_regex?: string[];
+  };
+  labels?: Record<string, string>;
+  status?: 0 | 1;
+  type?: "server" | "client";
+  ssl_protocols?: string[];
+  validity_start?: number;
+  validity_end?: number;
   create_time?: number;
   update_time?: number;
 }
 ```
 
+#### SSL Operations
+
+```typescript
+// Create SSL certificate
+const ssl = await client.ssl.create({
+  cert: "-----BEGIN CERTIFICATE-----\n...",
+  key: "-----BEGIN PRIVATE KEY-----\n...",
+  snis: ["api.example.com", "*.api.example.com"],
+});
+
+// Find certificates by SNI
+const certs = await client.ssl.findBySNI("api.example.com");
+
+// Check certificate expiration
+const expiration = await client.ssl.checkExpiration("ssl-id", 30);
+if (expiration.willExpireSoon) {
+  console.log(`Certificate expires in ${expiration.daysRemaining} days`);
+}
+```
+
+### Plugins
+
+Plugin management and configuration.
+
+#### Plugin Operations
+
+```typescript
+// List available plugins
+const plugins = await client.plugins.list();
+
+// Get plugin schema
+const schema = await client.plugins.getSchema("limit-count");
+
+// Get plugins by category
+const authPlugins = await client.plugins.getPluginsByCategory("authentication");
+
+// Validate plugin configuration
+const validation = await client.plugins.validateConfig("limit-count", {
+  count: 100,
+  time_window: 60,
+});
+```
+
 ### Global Rules
 
-Global rules apply to all requests.
+Global plugin rules applied across all routes.
 
 #### Global Rule Operations
 
-- `GET /apisix/admin/global_rules` - List all global rules
-- `GET /apisix/admin/global_rules/{id}` - Get specific global rule
-- `PUT /apisix/admin/global_rules/{id}` - Create or update global rule
-- `DELETE /apisix/admin/global_rules/{id}` - Delete global rule
+```typescript
+// Create global rule
+const globalRule = await client.globalRules.create({
+  plugins: {
+    prometheus: { prefer_name: true },
+    cors: { allow_origins: "*" },
+  },
+});
+
+// Add plugin to global rule
+await client.globalRules.addPlugin("rule-id", "rate-limit", {
+  count: 1000,
+  time_window: 3600,
+});
+
+// Remove plugin from global rule
+await client.globalRules.removePlugin("rule-id", "rate-limit");
+```
 
 ### Consumer Groups
 
-Consumer groups for managing multiple consumers with shared configurations.
+Consumer grouping for shared plugin configurations.
 
 #### Consumer Group Operations
 
-- `GET /apisix/admin/consumer_groups` - List all consumer groups
-- `GET /apisix/admin/consumer_groups/{id}` - Get specific consumer group
-- `PUT /apisix/admin/consumer_groups/{id}` - Create or update consumer group
-- `DELETE /apisix/admin/consumer_groups/{id}` - Delete consumer group
+```typescript
+// Create consumer group
+const group = await client.consumerGroups.create({
+  desc: "Premium users",
+  plugins: {
+    "limit-count": { count: 1000, time_window: 60 },
+  },
+  labels: { tier: "premium" },
+});
+
+// Add/remove labels
+await client.consumerGroups.addLabel("group-id", "env", "production");
+await client.consumerGroups.removeLabel("group-id", "env");
+```
 
 ### Plugin Configs
 
@@ -504,287 +469,291 @@ Reusable plugin configurations.
 
 #### Plugin Config Operations
 
-- `GET /apisix/admin/plugin_configs` - List all plugin configs
-- `GET /apisix/admin/plugin_configs/{id}` - Get specific plugin config
-- `PUT /apisix/admin/plugin_configs/{id}` - Create or update plugin config
-- `DELETE /apisix/admin/plugin_configs/{id}` - Delete plugin config
+```typescript
+// Create plugin config
+const pluginConfig = await client.pluginConfigs.create({
+  desc: "Rate limiting config",
+  plugins: {
+    "limit-count": { count: 100, time_window: 60 },
+    cors: { allow_origins: "*" },
+  },
+});
 
-### Plugins
-
-Plugin management and metadata.
-
-#### Plugin Operations
-
-- `GET /apisix/admin/plugins/list` - List all available plugins
-- `GET /apisix/admin/plugins/{plugin_name}` - Get plugin schema
-- `PUT /apisix/admin/plugins/{plugin_name}` - Enable/disable plugin globally
-
-#### Plugin Metadata Operations
-
-- `GET /apisix/admin/plugin_metadata/{plugin_name}` - Get plugin metadata
-- `PUT /apisix/admin/plugin_metadata/{plugin_name}` - Update plugin metadata
-- `DELETE /apisix/admin/plugin_metadata/{plugin_name}` - Delete plugin metadata
+// Find by plugin type
+const rateLimitConfigs = await client.pluginConfigs.findByPlugin("limit-count");
+```
 
 ### Stream Routes
 
-TCP/UDP proxy configurations.
+TCP/UDP proxy routing configuration.
 
 #### Stream Route Operations
 
-- `GET /apisix/admin/stream_routes` - List all stream routes
-- `GET /apisix/admin/stream_routes/{id}` - Get specific stream route
-- `PUT /apisix/admin/stream_routes/{id}` - Create or update stream route
-- `DELETE /apisix/admin/stream_routes/{id}` - Delete stream route
-
-### Credentials
-
-Credential management for consumers.
-
-#### Credential Operations
-
-- `GET /apisix/admin/credentials` - List all credentials
-- `GET /apisix/admin/credentials/{id}` - Get specific credential
-- `PUT /apisix/admin/credentials/{id}` - Create or update credential
-- `DELETE /apisix/admin/credentials/{id}` - Delete credential
-
-#### Credential Configuration Example
-
-```json
-{
-  "id": "credential-1",
-  "plugins": {
-    "key-auth": {
-      "key": "user-api-key-123"
-    },
-    "jwt-auth": {
-      "key": "user-key",
-      "secret": "user-secret"
-    }
+```typescript
+// Create TCP stream route
+const tcpRoute = await client.streamRoutes.createTCPRoute({
+  server_port: 9100,
+  upstream_id: "tcp-upstream-1",
+  plugins: {
+    "limit-conn": { conn: 100 },
   },
-  "desc": "API user credentials",
-  "labels": {
-    "env": "production",
-    "team": "backend"
-  }
-}
+});
+
+// Create UDP stream route
+const udpRoute = await client.streamRoutes.createUDPRoute({
+  server_port: 9200,
+  server_addr: "0.0.0.0",
+  upstream: {
+    type: "roundrobin",
+    nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+  },
+});
+
+// Find by protocol
+const tcpRoutes = await client.streamRoutes.findByProtocol("tcp");
+
+// Validate configuration
+const validation = client.streamRoutes.validateConfig({
+  server_port: 9100,
+  upstream_id: "test-upstream",
+});
 ```
 
 ### Secrets
 
-Secret management for external secret stores (Vault, AWS Secrets Manager, GCP Secret Manager).
+Secret store management for Vault, AWS, and GCP.
 
 #### Secret Operations
 
-**Vault Secrets:**
+```typescript
+// Vault Secret Management
+const vaultSecret = await client.secrets.createVaultSecret(
+  {
+    uri: "https://vault.example.com",
+    prefix: "/apisix/kv",
+    token: "vault-token-123",
+    namespace: "apisix-ns",
+  },
+  "vault-secret-1",
+);
 
-- `GET /apisix/admin/secrets/vault` - List all Vault secrets
-- `GET /apisix/admin/secrets/vault/{id}` - Get specific Vault secret
-- `PUT /apisix/admin/secrets/vault/{id}` - Create or update Vault secret
-- `DELETE /apisix/admin/secrets/vault/{id}` - Delete Vault secret
+// Test Vault connection
+const vaultConnection =
+  await client.secrets.testVaultConnection("vault-secret-1");
 
-**AWS Secrets:**
+// AWS Secrets Manager
+const awsSecret = await client.secrets.createAWSSecret(
+  {
+    access_key_id: "AKIAIOSFODNN7EXAMPLE",
+    secret_access_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    region: "us-east-1",
+  },
+  "aws-secret-1",
+);
 
-- `GET /apisix/admin/secrets/aws` - List all AWS secrets
-- `GET /apisix/admin/secrets/aws/{id}` - Get specific AWS secret
-- `PUT /apisix/admin/secrets/aws/{id}` - Create or update AWS secret
-- `DELETE /apisix/admin/secrets/aws/{id}` - Delete AWS secret
+// GCP Secret Manager
+const gcpSecret = await client.secrets.createGCPSecret(
+  {
+    auth_config: {
+      client_email: "service@project.iam.gserviceaccount.com",
+      private_key: "-----BEGIN PRIVATE KEY-----\n...",
+      project_id: "my-project",
+    },
+    ssl_verify: true,
+  },
+  "gcp-secret-1",
+);
 
-**GCP Secrets:**
-
-- `GET /apisix/admin/secrets/gcp` - List all GCP secrets
-- `GET /apisix/admin/secrets/gcp/{id}` - Get specific GCP secret
-- `PUT /apisix/admin/secrets/gcp/{id}` - Create or update GCP secret
-- `DELETE /apisix/admin/secrets/gcp/{id}` - Delete GCP secret
-
-#### Secret Providers
-
-**Vault Configuration:**
-
-```json
-{
-  "uri": "https://vault.example.com",
-  "prefix": "/apisix/kv",
-  "token": "vault-token-123",
-  "namespace": "apisix-ns"
-}
+// List all secrets by type
+const allSecrets = await client.secrets.listAllSecrets();
 ```
 
-**AWS Secrets Manager Configuration:**
+### Credentials
 
-```json
-{
-  "endpoint_url": "https://secretsmanager.us-east-1.amazonaws.com",
-  "region": "us-east-1",
-  "access_key_id": "AKIAIOSFODNN7EXAMPLE",
-  "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-}
+Standalone credential management (APISIX 3.0+).
+
+#### Credential Operations
+
+```typescript
+// Create standalone credentials
+const credential = await client.credentials.create("consumer-id", "cred-id", {
+  plugins: {
+    "key-auth": { key: "user-api-key-123" },
+    "jwt-auth": { key: "user-key", secret: "user-secret" },
+  },
+  desc: "API user credentials",
+});
+
+// List credentials for consumer
+const credentials = await client.credentials.list("consumer-id");
+
+// Update credentials
+await client.credentials.update("consumer-id", "cred-id", {
+  plugins: {
+    "key-auth": { key: "updated-key" },
+  },
+});
 ```
 
-**GCP Secret Manager Configuration:**
-
-```json
-{
-  "auth_config": {
-    "client_email": "service@project.iam.gserviceaccount.com",
-    "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-    "project_id": "my-project",
-    "token_uri": "https://oauth2.googleapis.com/token",
-    "entries_uri": "https://secretmanager.googleapis.com/v1"
-  }
-}
-```
-
-### Proto
+### Protos
 
 Protocol buffer definitions for gRPC services.
 
 #### Proto Operations
 
-- `GET /apisix/admin/protos` - List all proto definitions
-- `GET /apisix/admin/protos/{id}` - Get specific proto
-- `PUT /apisix/admin/protos/{id}` - Create or update proto
-- `DELETE /apisix/admin/protos/{id}` - Delete proto
-
-## Schema Validation
-
-Validate resource configurations before applying them:
-
-```bash
-curl http://127.0.0.1:9180/apisix/admin/schema/validate/routes \
-  -H "X-API-KEY: $admin_key" -X POST -d '{
-    "uri": "/api/*",
-    "upstream": {
-      "type": "roundrobin",
-      "nodes": {
-        "127.0.0.1:8080": 1
-      }
+```typescript
+// Create proto definition
+const proto = await client.protos.create({
+  desc: "User service proto",
+  content: `
+    syntax = "proto3";
+    package user;
+    service UserService {
+      rpc GetUser(GetUserRequest) returns (User);
     }
-  }'
+  `,
+});
+
+// Find by content
+const grpcProtos = await client.protos.findByContent("UserService");
+```
+
+## API Features
+
+### Pagination Support
+
+```typescript
+// Use built-in pagination
+const { routes, total, hasMore } = await client.routes.listPaginated(1, 20, {
+  name: "api-*", // Filter by name pattern
+});
+
+console.log(`Found ${total} routes`);
+console.log(`Page 1 has ${routes.length} routes`);
+```
+
+### Filtering
+
+```typescript
+// Filter resources by various criteria
+const filteredRoutes = await client.routes.list({
+  name: "api",
+  uri: "/v1",
+  label: "env:prod",
+});
+```
+
+### Force Operations
+
+```typescript
+// Force delete (even if resource is in use)
+await client.upstreams.delete("upstream-id", { force: true });
+```
+
+### Resource Cloning
+
+```typescript
+// Clone a route with modifications
+const clonedRoute = await client.routes.clone(
+  "source-route-id",
+  {
+    name: "cloned-api",
+    uri: "/api/v2/*",
+  },
+  "new-route-id",
+);
 ```
 
 ## Error Handling
 
-### HTTP Status Codes
-
-- `200` - Success
-- `201` - Created
-- `400` - Bad Request (validation errors)
-- `401` - Unauthorized (invalid API key)
-- `404` - Not Found
-- `409` - Conflict (resource already exists)
-- `500` - Internal Server Error
-
-### Error Response Format
-
-```json
-{
-  "error_msg": "Detailed error description"
+```typescript
+try {
+  const route = await client.routes.get("non-existent-id");
+} catch (error) {
+  if (error.message.includes("APISIX API Error")) {
+    console.log("APISIX returned an error:", error.message);
+  } else {
+    console.log("Network or other error:", error.message);
+  }
 }
 ```
 
-### Common Error Scenarios
+## Examples
 
-1. **Invalid API Key**: Check `X-API-KEY` header value
-2. **Resource Not Found**: Verify resource ID exists
-3. **Validation Errors**: Check request body against schema
-4. **Resource Conflicts**: Use `force=true` for deletions if needed
-
-## SDK Usage Examples
-
-### Create a Route
+### Complete Route Setup
 
 ```typescript
+// Create upstream
+const upstream = await client.upstreams.create({
+  name: "api-backend",
+  type: "roundrobin",
+  nodes: [
+    { host: "127.0.0.1", port: 8080, weight: 1 },
+    { host: "127.0.0.1", port: 8081, weight: 1 },
+  ],
+  checks: {
+    active: {
+      type: "http",
+      http_path: "/health",
+      timeout: 5,
+      healthy: { interval: 10, successes: 2 },
+    },
+  },
+});
+
+// Create service
+const service = await client.services.create({
+  name: "api-service",
+  upstream_id: upstream.id,
+  plugins: {
+    "rate-limit": { count: 1000, time_window: 3600 },
+  },
+});
+
+// Create route
 const route = await client.routes.create({
   name: "api-route",
   uri: "/api/v1/*",
-  methods: ["GET", "POST"],
-  upstream: {
-    type: "roundrobin",
-    nodes: {
-      "127.0.0.1:8080": 1,
-    },
-  },
-});
-```
-
-### List Routes with Pagination
-
-```typescript
-const { routes, total, hasMore } = await client.routes.listPaginated(1, 10, {
-  name: "api",
-});
-```
-
-### Update Service with Plugins
-
-```typescript
-await client.services.update("service-id", {
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  service_id: service.id,
   plugins: {
-    "rate-limit": {
-      count: 100,
-      time_window: 60,
+    cors: {
+      allow_origins: "*",
+      allow_methods: "GET,POST,PUT,DELETE",
+      allow_headers: "Content-Type,Authorization",
     },
+    "jwt-auth": {},
   },
 });
+
+console.log("API setup complete:", route.id);
 ```
 
-### Manage Consumer Credentials
+### Consumer with Authentication
 
 ```typescript
 // Create consumer
-await client.consumers.create({
+const consumer = await client.consumers.create({
   username: "api-user",
+  desc: "Mobile app user",
 });
 
-// Add credentials (traditional way)
-await client.consumers.createCredential("api-user", "cred-1", {
+// Add multiple authentication methods
+await client.consumers.addKeyAuth("api-user", "mobile-app-key-123");
+await client.consumers.addJwtAuth("api-user", "mobile-jwt-key", "secret");
+
+// Create consumer group
+const group = await client.consumerGroups.create({
+  desc: "Mobile users",
   plugins: {
-    "key-auth": {
-      key: "user-api-key",
-    },
+    "limit-count": { count: 500, time_window: 60 },
   },
 });
 
-// Create standalone credentials (APISIX 3.0+)
-await client.credentials.create({
-  plugins: {
-    "key-auth": { key: "standalone-key-123" },
-    "jwt-auth": { key: "jwt-key", secret: "jwt-secret" },
-  },
-  desc: "Multi-auth credentials",
-  labels: { env: "production" },
-});
-
-// Manage secrets (APISIX 3.0+)
-await client.secrets.createVaultSecretWithValidation(
-  {
-    uri: "https://vault.example.com",
-    prefix: "/apisix/secrets",
-    token: "vault-token",
-    namespace: "production",
-  },
-  "vault-secret-1",
-);
-
-// Create stream routes for TCP/UDP proxy
-await client.streamRoutes.createTCPRoute({
-  server_port: 9100,
-  upstream_id: "tcp-upstream",
-  plugins: { "limit-conn": { conn: 50 } },
+// Assign consumer to group
+await client.consumers.update("api-user", {
+  group_id: group.id,
 });
 ```
 
-### Force Delete Resource
-
-```typescript
-await client.upstreams.delete("upstream-id", { force: true });
-```
-
-## Best Practices
-
-1. **Security**: Always change default API keys in production
-2. **IP Restrictions**: Configure `allow_admin` for security
-3. **Validation**: Use schema validation before applying configurations
-4. **Monitoring**: Implement proper logging and monitoring
-5. **Backup**: Regular backup of APISIX configurations
-6. **Testing**: Test configurations in staging environment first
+For more examples, see the [playground directory](../../playground/).

@@ -162,4 +162,67 @@ export class Services {
 
     return this.create(newService, newId);
   }
+
+  /**
+   * Get service statistics
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    upstreamServices: number;
+    websocketEnabled: number;
+    topPlugins: Array<{ plugin: string; count: number }>;
+    hostCount: number;
+    pluginConfigServices: number;
+  }> {
+    const services = await this.list();
+    const pluginCount: Record<string, number> = {};
+    let upstreamServices = 0;
+    let websocketEnabled = 0;
+    let pluginConfigServices = 0;
+    const hosts = new Set<string>();
+
+    for (const service of services) {
+      // Count upstream services
+      if (service.upstream_id || service.upstream) {
+        upstreamServices++;
+      }
+
+      // Count websocket enabled services
+      if (service.enable_websocket) {
+        websocketEnabled++;
+      }
+
+      // Count plugin config services
+      if (service.plugin_config_id) {
+        pluginConfigServices++;
+      }
+
+      // Count plugins
+      if (service.plugins) {
+        for (const plugin of Object.keys(service.plugins)) {
+          pluginCount[plugin] = (pluginCount[plugin] || 0) + 1;
+        }
+      }
+
+      // Count hosts
+      if (service.hosts) {
+        for (const host of service.hosts) {
+          hosts.add(host);
+        }
+      }
+    }
+
+    const topPlugins = Object.entries(pluginCount)
+      .map(([plugin, count]) => ({ plugin, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      total: services.length,
+      upstreamServices,
+      websocketEnabled,
+      topPlugins,
+      hostCount: hosts.size,
+      pluginConfigServices,
+    };
+  }
 }

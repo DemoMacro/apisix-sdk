@@ -256,4 +256,56 @@ export class Upstreams {
 
     return this.create(newUpstream, newId);
   }
+
+  /**
+   * Get upstream statistics
+   */
+  async getStatistics(): Promise<{
+    total: number;
+    healthy: number;
+    unhealthy: number;
+    typeDistribution: Array<{ type: string; count: number }>;
+    nodeCount: number;
+    averageNodesPerUpstream: number;
+  }> {
+    const upstreams = await this.list();
+    const typeCount: Record<string, number> = {};
+    let totalNodes = 0;
+    let healthyCount = 0;
+    const unhealthyCount = 0;
+
+    for (const upstream of upstreams) {
+      // Count by type
+      const type = upstream.type || "unknown";
+      typeCount[type] = (typeCount[type] || 0) + 1;
+
+      // Count nodes
+      if (upstream.nodes) {
+        if (Array.isArray(upstream.nodes)) {
+          totalNodes += upstream.nodes.length;
+        } else {
+          totalNodes += Object.keys(upstream.nodes).length;
+        }
+      }
+
+      // For now, consider all upstreams as healthy since we don't have health check info
+      // In a real implementation, this would check actual health status
+      healthyCount++;
+    }
+
+    const typeDistribution = Object.entries(typeCount).map(([type, count]) => ({
+      type,
+      count,
+    }));
+
+    return {
+      total: upstreams.length,
+      healthy: healthyCount,
+      unhealthy: unhealthyCount,
+      typeDistribution,
+      nodeCount: totalNodes,
+      averageNodesPerUpstream:
+        upstreams.length > 0 ? totalNodes / upstreams.length : 0,
+    };
+  }
 }

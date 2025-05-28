@@ -122,7 +122,7 @@ export class SSLCertificates {
     );
 
     return {
-      certificates: this.client.extractList(response),
+      certificates: await this.client.extractList(response),
       total: response.total,
       hasMore: response.has_more,
     };
@@ -212,7 +212,7 @@ export class SSLCertificates {
     >
   > {
     const certificates = await this.list();
-    const results = [];
+    const expiringCerts = [];
 
     for (const cert of certificates) {
       if (cert.id) {
@@ -221,7 +221,7 @@ export class SSLCertificates {
           daysToExpire,
         );
         if (expirationInfo.isExpired || expirationInfo.willExpireSoon) {
-          results.push({
+          expiringCerts.push({
             ...cert,
             expirationInfo,
           });
@@ -229,7 +229,7 @@ export class SSLCertificates {
       }
     }
 
-    return results;
+    return expiringCerts;
   }
 
   /**
@@ -243,7 +243,14 @@ export class SSLCertificates {
     const source = await this.get(sourceId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...sslData } = source;
+    const {
+      id,
+      create_time,
+      update_time,
+      validity_start,
+      validity_end,
+      ...sslData
+    } = source;
 
     // Apply modifications
     const newSSL = {
