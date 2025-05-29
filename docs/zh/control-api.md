@@ -199,6 +199,38 @@ Object.entries(schemas.plugins).forEach(([name, schema]) => {
 Object.entries(schemas["stream-plugins"]).forEach(([name, schema]) => {
   console.log(`流插件 ${name}:`, schema);
 });
+
+// 验证配置数据
+const validation = await client.control.validateSchema(
+  "route",
+  {
+    name: "test-route",
+    uri: "/test",
+    methods: ["GET"],
+    upstream: {
+      type: "roundrobin",
+      nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+    },
+  },
+  {
+    validatePlugins: true,
+  },
+);
+
+if (!validation.valid) {
+  console.log("验证错误:", validation.errors);
+  console.log("验证警告:", validation.warnings);
+}
+
+// 获取验证建议
+const recommendations = await client.control.getValidationRecommendations();
+console.log("可用插件:", recommendations.availablePlugins);
+console.log("已弃用插件:", recommendations.deprecatedPlugins);
+console.log("推荐设置:", recommendations.recommendedSettings);
+
+// 检查 Schema 兼容性
+const compatibility = await client.control.getSchemaCompatibility("3.6.0");
+console.log("Schema 兼容性:", compatibility);
 ```
 
 ### Schema 信息响应

@@ -135,7 +135,7 @@ export class ApisixClient {
       method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
       headers?: Record<string, string>;
       body?: Record<string, unknown> | string;
-      params?: Record<string, string | number | boolean | undefined>;
+      params?: Record<string, string | number | boolean | string[] | undefined>;
     } = {},
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
@@ -181,7 +181,7 @@ export class ApisixClient {
    */
   public async get<T>(
     endpoint: string,
-    params?: Record<string, string | number | boolean | undefined>,
+    params?: Record<string, string | number | boolean | string[] | undefined>,
   ): Promise<T> {
     return this.request<T>(endpoint, {
       method: "GET",
@@ -421,6 +421,328 @@ export class ApisixClient {
    * Get configuration for control API endpoints
    */
   public getControlEndpoint(path: string): string {
-    return path.startsWith("/") ? path : `/${path}`;
+    return `/apisix/admin${path}`;
+  }
+
+  /**
+   * Execute batch operations
+   */
+  public async batch<T>(
+    endpoint: string,
+    operations: Array<{
+      operation: "create" | "update" | "delete";
+      id?: string;
+      data?: Record<string, unknown>;
+    }>,
+    options?: {
+      continueOnError?: boolean;
+      validateBeforeExecution?: boolean;
+    },
+  ): Promise<{
+    total: number;
+    successful: number;
+    failed: number;
+    results: Array<{
+      success: boolean;
+      id?: string;
+      data?: T;
+      error?: string;
+    }>;
+  }> {
+    const results: Array<{
+      success: boolean;
+      id?: string;
+      data?: T;
+      error?: string;
+    }> = [];
+
+    let successful = 0;
+    let failed = 0;
+
+    for (const operation of operations) {
+      try {
+        let result: T;
+
+        switch (operation.operation) {
+          case "create": {
+            if (!operation.data) {
+              throw new Error("Data is required for create operation");
+            }
+            const createResponse = await this.create<T>(
+              endpoint,
+              operation.data,
+              operation.id,
+            );
+            result = await this.extractValue(createResponse);
+            break;
+          }
+
+          case "update": {
+            if (!operation.id || !operation.data) {
+              throw new Error("ID and data are required for update operation");
+            }
+            const updateResponse = await this.update<T>(
+              endpoint,
+              operation.id,
+              operation.data,
+            );
+            result = await this.extractValue(updateResponse);
+            break;
+          }
+
+          case "delete":
+            if (!operation.id) {
+              throw new Error("ID is required for delete operation");
+            }
+            await this.remove<T>(endpoint, operation.id);
+            result = { success: true } as T;
+            break;
+
+          default:
+            throw new Error(`Unsupported operation: ${operation.operation}`);
+        }
+
+        results.push({
+          success: true,
+          id: operation.id,
+          data: result,
+        });
+        successful++;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        results.push({
+          success: false,
+          id: operation.id,
+          error: errorMessage,
+        });
+        failed++;
+
+        if (!options?.continueOnError) {
+          break;
+        }
+      }
+    }
+
+    return {
+      total: operations.length,
+      successful,
+      failed,
+      results,
+    };
+  }
+
+  /**
+   * Import data from various formats
+   */
+  public async importData<T>(
+    endpoint: string,
+    data: T[] | string,
+    options?: {
+      strategy?: "replace" | "merge" | "skip_existing";
+      validate?: boolean;
+      dryRun?: boolean;
+    },
+  ): Promise<{
+    total: number;
+    created: number;
+    updated: number;
+    skipped: number;
+    errors: Array<{
+      id?: string;
+      error: string;
+    }>;
+  }> {
+    let parsedData: T[];
+
+    if (typeof data === "string") {
+      try {
+        parsedData = JSON.parse(data);
+      } catch (error) {
+        throw new Error("Invalid JSON data provided");
+      }
+    } else {
+      parsedData = data;
+    }
+
+    const result = {
+      total: parsedData.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as Array<{ id?: string; error: string }>,
+    };
+
+    if (options?.dryRun) {
+      // In dry run mode, just validate the data
+      for (const item of parsedData) {
+        try {
+          if (options.validate) {
+            await this.validateData(item);
+          }
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : "Validation error";
+          result.errors.push({
+            id:
+              typeof item === "object" && item !== null && "id" in item
+                ? String((item as Record<string, unknown>).id)
+                : undefined,
+            error: errorMessage,
+          });
+        }
+      }
+      return result;
+    }
+
+    for (const item of parsedData) {
+      try {
+        const id =
+          typeof item === "object" && item !== null && "id" in item
+            ? String((item as Record<string, unknown>).id)
+            : undefined;
+        const strategy = options?.strategy || "merge";
+
+        if (id && strategy !== "replace") {
+          // Check if item exists
+          const exists = await this.checkExists(endpoint, id);
+
+          if (exists) {
+            if (strategy === "skip_existing") {
+              result.skipped++;
+              continue;
+            }
+            if (strategy === "merge") {
+              await this.update<T>(
+                endpoint,
+                id,
+                item as Record<string, unknown>,
+              );
+              result.updated++;
+              continue;
+            }
+          }
+        }
+
+        // Create new item
+        await this.create<T>(endpoint, item as Record<string, unknown>, id);
+        result.created++;
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Import error";
+        result.errors.push({
+          id:
+            typeof item === "object" && item !== null && "id" in item
+              ? String((item as Record<string, unknown>).id)
+              : undefined,
+          error: errorMessage,
+        });
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Export data in various formats
+   */
+  public async exportData<T>(
+    endpoint: string,
+    options?: {
+      format?: "json" | "yaml";
+      include?: string[];
+      exclude?: string[];
+      pretty?: boolean;
+    },
+  ): Promise<string> {
+    const response = await this.list<T>(endpoint);
+    const data = await this.extractList(response);
+
+    let filteredData: unknown[] = data;
+
+    // Apply field filtering
+    if (options?.include || options?.exclude) {
+      filteredData = data.map((item) => {
+        const obj = item as Record<string, unknown>;
+        const filtered: Record<string, unknown> = {};
+
+        if (options.include) {
+          for (const field of options.include) {
+            if (obj[field] !== undefined) {
+              filtered[field] = obj[field];
+            }
+          }
+        } else {
+          Object.assign(filtered, obj);
+          if (options.exclude) {
+            for (const field of options.exclude) {
+              delete filtered[field];
+            }
+          }
+        }
+
+        return filtered;
+      });
+    }
+
+    const format = options?.format || "json";
+
+    if (format === "json") {
+      return JSON.stringify(filteredData, null, options?.pretty ? 2 : 0);
+    }
+    if (format === "yaml") {
+      // Simple YAML serialization (would typically use a proper YAML library)
+      return this.toYaml(filteredData);
+    }
+
+    throw new Error(`Unsupported export format: ${format}`);
+  }
+
+  /**
+   * Simple YAML serialization (basic implementation)
+   */
+  private toYaml(data: unknown, indent = 0): string {
+    const spaces = " ".repeat(indent);
+
+    if (Array.isArray(data)) {
+      return data
+        .map((item) => `${spaces}- ${this.toYaml(item, indent + 2).trim()}`)
+        .join("\n");
+    }
+    if (data !== null && typeof data === "object") {
+      const obj = data as Record<string, unknown>;
+      return Object.entries(obj)
+        .map(([key, value]) => {
+          if (typeof value === "object" && value !== null) {
+            return `${spaces}${key}:\n${this.toYaml(value, indent + 2)}`;
+          }
+          return `${spaces}${key}: ${value}`;
+        })
+        .join("\n");
+    }
+    return String(data);
+  }
+
+  /**
+   * Check if resource exists
+   */
+  private async checkExists(endpoint: string, id: string): Promise<boolean> {
+    try {
+      await this.getOne(endpoint, id);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Validate data (placeholder for actual validation logic)
+   */
+  private async validateData(data: unknown): Promise<boolean> {
+    // This would typically use a schema validation library
+    if (!data || typeof data !== "object") {
+      throw new Error("Invalid data format");
+    }
+    return true;
   }
 }

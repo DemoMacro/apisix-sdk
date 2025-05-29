@@ -44,7 +44,24 @@ export interface ListOptions {
   name?: string;
   label?: string;
   uri?: string;
-  [key: string]: string | number | undefined;
+  search?: string;
+  sort?: string;
+  order?: "asc" | "desc";
+  status?: 0 | 1;
+  method?: string | string[];
+  host?: string;
+  plugin?: string;
+  upstream_id?: string;
+  service_id?: string;
+  consumer_id?: string;
+  created_after?: number;
+  created_before?: number;
+  updated_after?: number;
+  updated_before?: number;
+  fields?: string[];
+  exclude_fields?: string[];
+  with_count?: boolean;
+  [key: string]: string | number | boolean | string[] | undefined;
 }
 
 export interface ErrorResponse {
@@ -576,4 +593,129 @@ export interface ValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
+}
+
+// Batch operation types
+export interface BatchOperation<T> {
+  operation: "create" | "update" | "delete";
+  id?: string;
+  data?: T;
+}
+
+export interface BatchResult<T> {
+  success: boolean;
+  id?: string;
+  data?: T;
+  error?: string;
+}
+
+export interface BatchResponse<T> {
+  total: number;
+  successful: number;
+  failed: number;
+  results: BatchResult<T>[];
+}
+
+// Import/Export types
+export interface ImportOptions {
+  strategy?: "replace" | "merge" | "skip_existing";
+  validate?: boolean;
+  dry_run?: boolean;
+}
+
+export interface ExportOptions {
+  format?: "json" | "yaml" | "openapi";
+  include?: string[];
+  exclude?: string[];
+  pretty?: boolean;
+}
+
+export interface ImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: Array<{
+    id?: string;
+    error: string;
+  }>;
+}
+
+// OpenAPI Integration types
+export interface OpenAPIRoute {
+  operationId?: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  security?: Array<Record<string, string[]>>;
+  parameters?: Array<{
+    name: string;
+    in: "path" | "query" | "header" | "cookie";
+    required?: boolean;
+    schema?: object;
+    description?: string;
+  }>;
+  requestBody?: {
+    content: Record<
+      string,
+      {
+        schema?: object;
+        example?: unknown;
+      }
+    >;
+    required?: boolean;
+  };
+  responses?: Record<
+    string,
+    {
+      description: string;
+      content?: Record<
+        string,
+        {
+          schema?: object;
+          example?: unknown;
+        }
+      >;
+    }
+  >;
+  "x-apisix-upstream"?: Upstream;
+  "x-apisix-plugins"?: Record<string, unknown>;
+  "x-apisix-service_id"?: string;
+  "x-apisix-status"?: 0 | 1;
+  "x-apisix-priority"?: number;
+  "x-apisix-enableWebsocket"?: boolean;
+  "x-apisix-labels"?: Record<string, string>;
+  "x-apisix-vars"?: Array<[string, string, string]>;
+}
+
+export interface OpenAPISpec {
+  openapi: string;
+  info: {
+    title: string;
+    version: string;
+    description?: string;
+    license?: {
+      name: string;
+      url?: string;
+    };
+  };
+  servers?: Array<{
+    url: string;
+    description?: string;
+  }>;
+  paths: Record<string, Record<string, OpenAPIRoute>>;
+  components?: {
+    securitySchemes?: Record<
+      string,
+      {
+        type: string;
+        scheme?: string;
+        bearerFormat?: string;
+        in?: string;
+        name?: string;
+      }
+    >;
+    schemas?: Record<string, object>;
+  };
+  security?: Array<Record<string, string[]>>;
 }

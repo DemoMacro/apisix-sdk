@@ -1,6 +1,6 @@
 {
   "name": "apisix-sdk",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Apache APISIX SDK - Complete TypeScript/JavaScript client for APISIX Admin API and Control API with APISIX 3.0+ support",
   "type": "module",
   "exports": {

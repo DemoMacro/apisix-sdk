@@ -169,6 +169,62 @@ const cloned = await client.routes.clone("source-id", {
 
 // Get statistics
 const stats = await client.routes.getStatistics();
+
+// Advanced route search
+const searchResults = await client.routes.search({
+  uriPattern: "/api/v1",
+  methods: ["GET", "POST"],
+  hosts: ["api.example.com"],
+  plugins: ["limit-count", "cors"],
+  status: 1,
+  hasUpstream: true,
+  hasService: false,
+  labels: { env: "production" },
+  createdAfter: new Date("2024-01-01"),
+});
+
+// Batch operations
+const batchResult = await client.routes.batchOperations([
+  {
+    operation: "create",
+    data: { name: "api-1", uri: "/api/1", methods: ["GET"] },
+  },
+  {
+    operation: "update",
+    id: "route-1",
+    data: { desc: "Updated route" },
+  },
+  {
+    operation: "delete",
+    id: "route-2",
+  },
+]);
+
+// Import from OpenAPI
+const importResult = await client.routes.importFromOpenAPI(openApiSpec, {
+  strategy: "merge",
+  validateBeforeImport: true,
+});
+
+// Export to OpenAPI
+const openApiExport = await client.routes.exportToOpenAPI({
+  title: "My API Routes",
+  version: "1.0.0",
+  includeDisabled: false,
+});
+
+// Enhanced statistics with more details
+const stats = await client.routes.getStatistics();
+console.log("Route statistics:", {
+  total: stats.total,
+  enabled: stats.enabledCount,
+  disabled: stats.disabledCount,
+  methodDistribution: stats.methodDistribution,
+  topPlugins: stats.topPlugins,
+  hostCount: stats.hostCount,
+  serviceRoutes: stats.serviceRoutes,
+  upstreamRoutes: stats.upstreamRoutes,
+});
 ```
 
 ### Services
@@ -662,6 +718,222 @@ const clonedRoute = await client.routes.clone(
   },
   "new-route-id",
 );
+```
+
+### Batch Operations
+
+Perform multiple operations in a single request with error handling and validation.
+
+```typescript
+// Batch operations on routes
+const operations = [
+  {
+    operation: "create" as const,
+    data: {
+      name: "api-route-1",
+      uri: "/api/v1/users",
+      methods: ["GET", "POST"],
+      upstream: { type: "roundrobin", nodes: { "127.0.0.1:8080": 1 } },
+    },
+  },
+  {
+    operation: "update" as const,
+    id: "existing-route-id",
+    data: { desc: "Updated description" },
+  },
+  {
+    operation: "delete" as const,
+    id: "route-to-delete",
+  },
+];
+
+const result = await client.routes.batchOperations(operations);
+
+console.log(
+  `Total: ${result.total}, Successful: ${result.successful}, Failed: ${result.failed}`,
+);
+result.results.forEach((res, idx) => {
+  if (res.success) {
+    console.log(`Operation ${idx + 1}: Success`, res.data);
+  } else {
+    console.log(`Operation ${idx + 1}: Failed`, res.error);
+  }
+});
+
+// Batch operations at SDK level
+const batchResult = await client.batchOperations("routes", operations, {
+  continueOnError: true,
+  validateBeforeExecution: true,
+});
+```
+
+### Import/Export Data
+
+Import and export configuration data in multiple formats with conflict resolution.
+
+```typescript
+// Export routes to JSON
+const jsonData = await client.exportData("routes", {
+  format: "json",
+  pretty: true,
+  exclude: ["create_time", "update_time"],
+});
+
+// Export to YAML
+const yamlData = await client.exportData("routes", {
+  format: "yaml",
+  include: ["name", "uri", "methods", "upstream"],
+});
+
+// Import data with strategy
+const importResult = await client.importData("routes", jsonData, {
+  strategy: "merge", // 'replace' | 'merge' | 'skip_existing'
+  validate: true,
+  dryRun: false,
+});
+
+console.log(
+  `Imported: ${importResult.created} created, ${importResult.updated} updated`,
+);
+if (importResult.errors.length > 0) {
+  console.log("Import errors:", importResult.errors);
+}
+```
+
+### OpenAPI Integration
+
+Import routes from OpenAPI specifications and export APISIX routes as OpenAPI specs.
+
+```typescript
+// Import from OpenAPI specification
+const openApiSpec = {
+  openapi: "3.0.0",
+  info: { title: "My API", version: "1.0.0" },
+  paths: {
+    "/users": {
+      get: {
+        operationId: "getUsers",
+        summary: "Get all users",
+        "x-apisix-upstream": {
+          type: "roundrobin",
+          nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+        },
+        "x-apisix-plugins": {
+          "limit-count": { count: 100, time_window: 60 },
+        },
+      },
+      post: {
+        operationId: "createUser",
+        summary: "Create user",
+        "x-apisix-service_id": "user-service",
+      },
+    },
+  },
+};
+
+const importResult = await client.importFromOpenAPI(openApiSpec, {
+  strategy: "merge",
+  validateBeforeImport: true,
+  defaultUpstream: {
+    type: "roundrobin",
+    nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+  },
+});
+
+// Export to OpenAPI specification
+const exportedSpec = await client.exportToOpenAPI({
+  title: "APISIX Routes API",
+  version: "1.0.0",
+  serverUrl: "https://api.example.com",
+  includeDisabled: false,
+  filterByLabels: { env: "production" },
+});
+```
+
+### Advanced Search
+
+Search routes with multiple criteria and complex filtering.
+
+```typescript
+// Advanced route search
+const searchResults = await client.searchRoutes({
+  uriPattern: "/api/v1",
+  methods: ["GET", "POST"],
+  hosts: ["api.example.com"],
+  plugins: ["limit-count", "cors"],
+  status: 1, // only enabled routes
+  hasUpstream: true,
+  labels: { env: "production", team: "backend" },
+  createdAfter: new Date("2024-01-01"),
+  createdBefore: new Date("2024-12-31"),
+});
+
+// Using route-specific advanced search
+const routes = await client.routes.search({
+  uri: "/api/users",
+  methods: ["GET"],
+  hasService: true,
+  plugins: ["jwt-auth"],
+});
+```
+
+### Data Validation
+
+Validate configuration data against APISIX schemas before applying changes.
+
+```typescript
+// Validate route configuration
+const routeConfig = {
+  name: "test-route",
+  uri: "/api/test",
+  methods: ["GET"],
+  upstream: {
+    type: "roundrobin",
+    nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+  },
+  plugins: {
+    "limit-count": { count: 100, time_window: 60 },
+  },
+};
+
+const validation = await client.validateData("route", routeConfig, {
+  validatePlugins: true,
+});
+
+if (!validation.valid) {
+  console.log("Validation errors:", validation.errors);
+  console.log("Validation warnings:", validation.warnings);
+} else {
+  console.log("Configuration is valid");
+}
+
+// Get configuration recommendations
+const recommendations = await client.getConfigurationRecommendations();
+console.log("Available plugins:", recommendations.availablePlugins);
+console.log("Deprecated plugins:", recommendations.deprecatedPlugins);
+console.log("Recommended settings:", recommendations.recommendedSettings);
+```
+
+### Schema Compatibility
+
+Check schema compatibility and migration recommendations.
+
+```typescript
+// Check schema compatibility
+const compatibility = await client.getSchemaCompatibility("3.6.0");
+
+console.log(
+  `Current: ${compatibility.currentVersion}, Target: ${compatibility.targetVersion}`,
+);
+console.log(`Compatible: ${compatibility.compatible}`);
+
+if (compatibility.breaking_changes.length > 0) {
+  console.log("Breaking changes:", compatibility.breaking_changes);
+}
+
+if (compatibility.new_features.length > 0) {
+  console.log("New features:", compatibility.new_features);
+}
 ```
 
 ## Error Handling

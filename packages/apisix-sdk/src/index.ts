@@ -17,7 +17,7 @@ import { Services } from "./resources/services";
 import { SSLCertificates } from "./resources/ssl";
 import { StreamRoutes } from "./resources/stream-routes";
 import { Upstreams } from "./resources/upstreams";
-import type { ApisixSDKConfig } from "./types";
+import type { ApisixSDKConfig, Upstream } from "./types";
 import { VersionManager } from "./version";
 
 /**
@@ -181,6 +181,169 @@ export class ApisixSDK {
       supportedPlugins: versionConfig.supportedPlugins,
       deprecatedFeatures: versionConfig.deprecatedFeatures,
     };
+  }
+
+  /**
+   * Validate configuration data against APISIX schemas
+   */
+  async validateData(
+    entityType:
+      | "route"
+      | "service"
+      | "upstream"
+      | "consumer"
+      | "ssl"
+      | "plugin",
+    data: Record<string, unknown>,
+    options?: {
+      pluginName?: string;
+      validatePlugins?: boolean;
+    },
+  ) {
+    return this.control.validateSchema(entityType, data, options);
+  }
+
+  /**
+   * Import data with validation and conflict resolution
+   */
+  async importData<T>(
+    entityType: "routes" | "services" | "upstreams" | "consumers" | "ssl",
+    data: T[] | string,
+    options?: {
+      strategy?: "replace" | "merge" | "skip_existing";
+      validate?: boolean;
+      dryRun?: boolean;
+    },
+  ) {
+    const endpoint = this.getEndpointForEntityType(entityType);
+    return this.client.importData<T>(endpoint, data, options);
+  }
+
+  /**
+   * Export data in various formats
+   */
+  async exportData<T>(
+    entityType: "routes" | "services" | "upstreams" | "consumers" | "ssl",
+    options?: {
+      format?: "json" | "yaml";
+      include?: string[];
+      exclude?: string[];
+      pretty?: boolean;
+    },
+  ) {
+    const endpoint = this.getEndpointForEntityType(entityType);
+    return this.client.exportData<T>(endpoint, options);
+  }
+
+  /**
+   * Perform batch operations on multiple entities
+   */
+  async batchOperations<T>(
+    entityType: "routes" | "services" | "upstreams" | "consumers" | "ssl",
+    operations: Array<{
+      operation: "create" | "update" | "delete";
+      id?: string;
+      data?: Record<string, unknown>;
+    }>,
+    options?: {
+      continueOnError?: boolean;
+      validateBeforeExecution?: boolean;
+    },
+  ) {
+    const endpoint = this.getEndpointForEntityType(entityType);
+    return this.client.batch<T>(endpoint, operations, options);
+  }
+
+  /**
+   * Get configuration recommendations and best practices
+   */
+  async getConfigurationRecommendations() {
+    return this.control.getValidationRecommendations();
+  }
+
+  /**
+   * Get schema compatibility information
+   */
+  async getSchemaCompatibility(targetVersion?: string) {
+    return this.control.getSchemaCompatibility(targetVersion);
+  }
+
+  /**
+   * Import routes from OpenAPI specification
+   */
+  async importFromOpenAPI(
+    spec: Record<string, unknown>,
+    options?: {
+      strategy?: "replace" | "merge" | "skip_existing";
+      defaultUpstream?: Record<string, unknown>;
+      validateBeforeImport?: boolean;
+    },
+  ) {
+    return this.routes.importFromOpenAPI(
+      spec as {
+        openapi: string;
+        info: { title: string; version: string; description?: string };
+        paths: Record<string, Record<string, Record<string, unknown>>>;
+      },
+      options as {
+        strategy?: "replace" | "merge" | "skip_existing";
+        defaultUpstream?: Upstream;
+        validateBeforeImport?: boolean;
+      },
+    );
+  }
+
+  /**
+   * Export routes to OpenAPI specification
+   */
+  async exportToOpenAPI(options?: {
+    title?: string;
+    version?: string;
+    description?: string;
+    serverUrl?: string;
+    includeDisabled?: boolean;
+    filterByLabels?: Record<string, string>;
+  }) {
+    return this.routes.exportToOpenAPI(options);
+  }
+
+  /**
+   * Advanced search across routes
+   */
+  async searchRoutes(criteria: {
+    uri?: string;
+    uriPattern?: string;
+    methods?: string[];
+    hosts?: string[];
+    plugins?: string[];
+    status?: 0 | 1;
+    hasUpstream?: boolean;
+    hasService?: boolean;
+    labels?: Record<string, string>;
+    createdAfter?: Date;
+    createdBefore?: Date;
+  }) {
+    return this.routes.search(criteria);
+  }
+
+  /**
+   * Get entity endpoint based on type
+   */
+  private getEndpointForEntityType(entityType: string): string {
+    const endpointMap: Record<string, string> = {
+      routes: "/routes",
+      services: "/services",
+      upstreams: "/upstreams",
+      consumers: "/consumers",
+      ssl: "/ssl",
+    };
+
+    const endpoint = endpointMap[entityType];
+    if (!endpoint) {
+      throw new Error(`Unsupported entity type: ${entityType}`);
+    }
+
+    return this.client.getAdminEndpoint(endpoint);
   }
 }
 

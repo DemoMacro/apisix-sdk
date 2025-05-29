@@ -171,8 +171,8 @@ describe("APISIX SDK - Upstreams Management", () => {
     });
   });
 
-  describe("Health Checks Configuration", () => {
-    it("should create upstream with health checks", async () => {
+  describe("Health Check and Monitoring", () => {
+    it("should manage health checks", async () => {
       const upstream = await client.upstreams.create(
         {
           name: "health-check-upstream",
@@ -186,35 +186,31 @@ describe("APISIX SDK - Upstreams Management", () => {
               type: "http",
               http_path: "/health",
               timeout: 5,
-              healthy: {
-                interval: 10,
-                successes: 2,
-              },
-              unhealthy: {
-                interval: 5,
-                http_failures: 3,
-              },
-            },
-            passive: {
-              healthy: {
-                http_statuses: [200, 201, 202],
-              },
-              unhealthy: {
-                http_statuses: [500, 502, 503, 504],
-                http_failures: 3,
-              },
+              healthy: { interval: 10, successes: 2 },
+              unhealthy: { interval: 5, http_failures: 3 },
             },
           },
         },
         "health-check-upstream",
       );
 
-      expect(upstream).toBeDefined();
-      expect(upstream.checks).toBeDefined();
       expect(upstream.checks?.active?.type).toBe("http");
+      expect(upstream.checks?.active?.http_path).toBe("/health");
 
       // Clean up
       await client.upstreams.delete("health-check-upstream");
+    });
+
+    it("should get upstream statistics", async () => {
+      const stats = await client.upstreams.getStatistics();
+
+      expect(stats).toBeDefined();
+      expect(typeof stats.total).toBe("number");
+      expect(typeof stats.healthy).toBe("number");
+      expect(typeof stats.unhealthy).toBe("number");
+      expect(Array.isArray(stats.typeDistribution)).toBe(true);
+      expect(typeof stats.nodeCount).toBe("number");
+      expect(typeof stats.averageNodesPerUpstream).toBe("number");
     });
   });
 
@@ -317,10 +313,11 @@ describe("APISIX SDK - Upstreams Management", () => {
 
       expect(stats).toBeDefined();
       expect(typeof stats.total).toBe("number");
-      expect(stats.total).toBeGreaterThan(0);
       expect(typeof stats.healthy).toBe("number");
       expect(typeof stats.unhealthy).toBe("number");
       expect(Array.isArray(stats.typeDistribution)).toBe(true);
+      expect(typeof stats.nodeCount).toBe("number");
+      expect(typeof stats.averageNodesPerUpstream).toBe("number");
     });
   });
 

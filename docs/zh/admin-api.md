@@ -169,6 +169,62 @@ const cloned = await client.routes.clone("source-id", {
 
 // 获取统计信息
 const stats = await client.routes.getStatistics();
+
+// 高级路由搜索
+const searchResults = await client.routes.search({
+  uriPattern: "/api/v1",
+  methods: ["GET", "POST"],
+  hosts: ["api.example.com"],
+  plugins: ["limit-count", "cors"],
+  status: 1,
+  hasUpstream: true,
+  hasService: false,
+  labels: { env: "production" },
+  createdAfter: new Date("2024-01-01"),
+});
+
+// 批量操作
+const batchResult = await client.routes.batchOperations([
+  {
+    operation: "create",
+    data: { name: "api-1", uri: "/api/1", methods: ["GET"] },
+  },
+  {
+    operation: "update",
+    id: "route-1",
+    data: { desc: "更新的路由" },
+  },
+  {
+    operation: "delete",
+    id: "route-2",
+  },
+]);
+
+// 从 OpenAPI 导入
+const importResult = await client.routes.importFromOpenAPI(openApiSpec, {
+  strategy: "merge",
+  validateBeforeImport: true,
+});
+
+// 导出为 OpenAPI
+const openApiExport = await client.routes.exportToOpenAPI({
+  title: "我的 API 路由",
+  version: "1.0.0",
+  includeDisabled: false,
+});
+
+// 增强的统计信息，包含更多详细内容
+const stats = await client.routes.getStatistics();
+console.log("路由统计信息:", {
+  总计: stats.total,
+  已启用: stats.enabledCount,
+  已禁用: stats.disabledCount,
+  方法分布: stats.methodDistribution,
+  热门插件: stats.topPlugins,
+  主机数量: stats.hostCount,
+  服务路由: stats.serviceRoutes,
+  上游路由: stats.upstreamRoutes,
+});
 ```
 
 ### 服务
@@ -620,48 +676,220 @@ const grpcProtos = await client.protos.findByContent("UserService");
 
 ## API 特性
 
-### 分页支持
+### 批量操作
+
+在单个请求中执行多个操作，支持错误处理和验证。
 
 ```typescript
-// 使用内置分页
-const { routes, total, hasMore } = await client.routes.listPaginated(1, 20, {
-  name: "api-*", // 按名称模式过滤
-});
-
-console.log(`找到 ${total} 个路由`);
-console.log(`第 1 页有 ${routes.length} 个路由`);
-```
-
-### 过滤
-
-```typescript
-// 按各种条件过滤资源
-const filteredRoutes = await client.routes.list({
-  name: "api",
-  uri: "/v1",
-  label: "env:prod",
-});
-```
-
-### 强制操作
-
-```typescript
-// 强制删除 (即使资源正在使用)
-await client.upstreams.delete("upstream-id", { force: true });
-```
-
-### 资源克隆
-
-```typescript
-// 克隆并修改路由
-const clonedRoute = await client.routes.clone(
-  "source-route-id",
+// 路由批量操作
+const operations = [
   {
-    name: "cloned-api",
-    uri: "/api/v2/*",
+    operation: "create" as const,
+    data: {
+      name: "api-route-1",
+      uri: "/api/v1/users",
+      methods: ["GET", "POST"],
+      upstream: { type: "roundrobin", nodes: { "127.0.0.1:8080": 1 } },
+    },
   },
-  "new-route-id",
+  {
+    operation: "update" as const,
+    id: "existing-route-id",
+    data: { desc: "Updated description" },
+  },
+  {
+    operation: "delete" as const,
+    id: "route-to-delete",
+  },
+];
+
+const result = await client.routes.batchOperations(operations);
+
+console.log(
+  `总计: ${result.total}, 成功: ${result.successful}, 失败: ${result.failed}`,
 );
+result.results.forEach((res, idx) => {
+  if (res.success) {
+    console.log(`操作 ${idx + 1}: 成功`, res.data);
+  } else {
+    console.log(`操作 ${idx + 1}: 失败`, res.error);
+  }
+});
+
+// SDK 级别的批量操作
+const batchResult = await client.batchOperations("routes", operations, {
+  continueOnError: true,
+  validateBeforeExecution: true,
+});
+```
+
+### 数据导入/导出
+
+以多种格式导入和导出配置数据，支持冲突解决。
+
+```typescript
+// 导出路由到 JSON
+const jsonData = await client.exportData("routes", {
+  format: "json",
+  pretty: true,
+  exclude: ["create_time", "update_time"],
+});
+
+// 导出为 YAML
+const yamlData = await client.exportData("routes", {
+  format: "yaml",
+  include: ["name", "uri", "methods", "upstream"],
+});
+
+// 使用策略导入数据
+const importResult = await client.importData("routes", jsonData, {
+  strategy: "merge", // 'replace' | 'merge' | 'skip_existing'
+  validate: true,
+  dryRun: false,
+});
+
+console.log(
+  `导入结果: ${importResult.created} 个已创建, ${importResult.updated} 个已更新`,
+);
+if (importResult.errors.length > 0) {
+  console.log("导入错误:", importResult.errors);
+}
+```
+
+### OpenAPI 集成
+
+从 OpenAPI 规范导入路由，并将 APISIX 路由导出为 OpenAPI 规范。
+
+```typescript
+// 从 OpenAPI 规范导入
+const openApiSpec = {
+  openapi: "3.0.0",
+  info: { title: "My API", version: "1.0.0" },
+  paths: {
+    "/users": {
+      get: {
+        operationId: "getUsers",
+        summary: "获取所有用户",
+        "x-apisix-upstream": {
+          type: "roundrobin",
+          nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+        },
+        "x-apisix-plugins": {
+          "limit-count": { count: 100, time_window: 60 },
+        },
+      },
+      post: {
+        operationId: "createUser",
+        summary: "创建用户",
+        "x-apisix-service_id": "user-service",
+      },
+    },
+  },
+};
+
+const importResult = await client.importFromOpenAPI(openApiSpec, {
+  strategy: "merge",
+  validateBeforeImport: true,
+  defaultUpstream: {
+    type: "roundrobin",
+    nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+  },
+});
+
+// 导出为 OpenAPI 规范
+const exportedSpec = await client.exportToOpenAPI({
+  title: "APISIX Routes API",
+  version: "1.0.0",
+  serverUrl: "https://api.example.com",
+  includeDisabled: false,
+  filterByLabels: { env: "production" },
+});
+```
+
+### 高级搜索
+
+使用多种条件和复杂过滤进行路由搜索。
+
+```typescript
+// 高级路由搜索
+const searchResults = await client.searchRoutes({
+  uriPattern: "/api/v1",
+  methods: ["GET", "POST"],
+  hosts: ["api.example.com"],
+  plugins: ["limit-count", "cors"],
+  status: 1, // 仅启用的路由
+  hasUpstream: true,
+  labels: { env: "production", team: "backend" },
+  createdAfter: new Date("2024-01-01"),
+  createdBefore: new Date("2024-12-31"),
+});
+
+// 使用路由特定的高级搜索
+const routes = await client.routes.search({
+  uri: "/api/users",
+  methods: ["GET"],
+  hasService: true,
+  plugins: ["jwt-auth"],
+});
+```
+
+### 数据验证
+
+在应用更改之前，根据 APISIX Schema 验证配置数据。
+
+```typescript
+// 验证路由配置
+const routeConfig = {
+  name: "test-route",
+  uri: "/api/test",
+  methods: ["GET"],
+  upstream: {
+    type: "roundrobin",
+    nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+  },
+  plugins: {
+    "limit-count": { count: 100, time_window: 60 },
+  },
+};
+
+const validation = await client.validateData("route", routeConfig, {
+  validatePlugins: true,
+});
+
+if (!validation.valid) {
+  console.log("验证错误:", validation.errors);
+  console.log("验证警告:", validation.warnings);
+} else {
+  console.log("配置有效");
+}
+
+// 获取配置建议
+const recommendations = await client.getConfigurationRecommendations();
+console.log("可用插件:", recommendations.availablePlugins);
+console.log("已弃用插件:", recommendations.deprecatedPlugins);
+console.log("推荐设置:", recommendations.recommendedSettings);
+```
+
+### Schema 兼容性
+
+检查 Schema 兼容性和迁移建议。
+
+```typescript
+// 检查 Schema 兼容性
+const compatibility = await client.getSchemaCompatibility("3.6.0");
+
+console.log(
+  `当前版本: ${compatibility.currentVersion}, 目标版本: ${compatibility.targetVersion}`,
+);
+console.log(`兼容: ${compatibility.compatible}`);
+
+if (compatibility.breaking_changes.length > 0) {
+  console.log("破坏性变更:", compatibility.breaking_changes);
+}
+
+if (compatibility.new_features.length > 0) {
+  console.log("新特性:", compatibility.new_features);
+}
 ```
 
 ## 错误处理

@@ -199,6 +199,38 @@ Object.entries(schemas.plugins).forEach(([name, schema]) => {
 Object.entries(schemas["stream-plugins"]).forEach(([name, schema]) => {
   console.log(`Stream plugin ${name}:`, schema);
 });
+
+// Validate configuration data
+const validation = await client.control.validateSchema(
+  "route",
+  {
+    name: "test-route",
+    uri: "/test",
+    methods: ["GET"],
+    upstream: {
+      type: "roundrobin",
+      nodes: [{ host: "127.0.0.1", port: 8080, weight: 1 }],
+    },
+  },
+  {
+    validatePlugins: true,
+  },
+);
+
+if (!validation.valid) {
+  console.log("Validation errors:", validation.errors);
+  console.log("Validation warnings:", validation.warnings);
+}
+
+// Get validation recommendations
+const recommendations = await client.control.getValidationRecommendations();
+console.log("Available plugins:", recommendations.availablePlugins);
+console.log("Deprecated plugins:", recommendations.deprecatedPlugins);
+console.log("Recommended settings:", recommendations.recommendedSettings);
+
+// Check schema compatibility
+const compatibility = await client.control.getSchemaCompatibility("3.6.0");
+console.log("Schema compatibility:", compatibility);
 ```
 
 ### Schema Info Response
