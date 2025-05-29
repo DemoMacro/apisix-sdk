@@ -263,11 +263,11 @@ describe("APISIX SDK - Services Management", () => {
         return;
       }
 
-      const result = await client.services.listPaginated(1, 5);
+      const result = await client.services.listPaginated(1, 10);
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.services)).toBe(true);
-      expect(result.services.length).toBeLessThanOrEqual(5);
+      expect(result.services.length).toBeLessThanOrEqual(10);
     });
   });
 

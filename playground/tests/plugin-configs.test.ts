@@ -210,7 +210,7 @@ describe("APISIX SDK - Plugin Configs Management", () => {
       const corsPlugin = updated.plugins?.cors;
       if (corsPlugin) {
         // If plugin still exists, check if it's been marked as disabled or modified
-        const metaData = (corsPlugin as any)._meta;
+        const _metaData = (corsPlugin as any)._meta;
         // Accept that plugin might still exist but with changed metadata
         console.log("CORS plugin after removal:", corsPlugin);
       }
@@ -291,10 +291,13 @@ describe("APISIX SDK - Plugin Configs Management", () => {
         return;
       }
 
-      const result = await client.pluginConfigs.list({ page: 1, page_size: 5 });
+      const result = await client.pluginConfigs.list({
+        page: 1,
+        page_size: 10,
+      });
 
       expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBeLessThanOrEqual(5);
+      expect(result.length).toBeLessThanOrEqual(10);
     });
   });
 

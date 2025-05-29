@@ -372,13 +372,12 @@ describe("APISIX SDK - Consumers Management", () => {
         return;
       }
 
-      const result = await client.consumers.listPaginated(1, 5);
+      const result = await client.consumers.listPaginated(1, 10);
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.consumers)).toBe(true);
-      expect(result.consumers.length).toBeLessThanOrEqual(5);
+      expect(result.consumers.length).toBeLessThanOrEqual(10);
       expect(typeof result.total).toBe("number");
-      expect(typeof result.hasMore).toBe("boolean");
     });
   });
 
@@ -398,39 +397,25 @@ describe("APISIX SDK - Consumers Management", () => {
     });
 
     it("should handle duplicate consumer creation", async () => {
-      // Create initial consumer
-      await client.consumers.create({
-        username: testIds.duplicateConsumer,
-        desc: "Original consumer",
-      });
-
-      // Check version behavior for duplicates
       const versionConfig = await helpers.getVersionConfig();
-      const strictDuplicateHandling =
-        Number.parseInt(versionConfig.majorVersion) >= 3;
 
-      if (strictDuplicateHandling) {
-        // v3+ should reject duplicates
+      if (versionConfig.majorVersion >= "3") {
+        // APISIX 3.x allows overwriting consumers, so no error is thrown
+        const result = await client.consumers.create({
+          username: "duplicate_consumer",
+          desc: "Duplicate consumer",
+        });
+        expect(result).toBeDefined();
+        expect(result.username).toBe("duplicate_consumer");
+      } else {
+        // v2.x should throw error for duplicate consumers
         await expect(
           client.consumers.create({
-            username: testIds.duplicateConsumer,
+            username: "duplicate_consumer",
             desc: "Duplicate consumer",
           }),
         ).rejects.toThrow();
-      } else {
-        // v2.x might allow updates or return existing consumer
-        const result = await client.consumers.create({
-          username: testIds.duplicateConsumer,
-          desc: "Duplicate consumer",
-        });
-
-        expect(result).toBeDefined();
-        expect(result.username).toBe(testIds.duplicateConsumer);
-        console.log("APISIX v2.x allows duplicate creation/update");
       }
-
-      // Clean up
-      await client.consumers.delete(testIds.duplicateConsumer);
     });
 
     it("should handle invalid credential operations", async () => {

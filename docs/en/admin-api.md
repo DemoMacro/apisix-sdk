@@ -43,9 +43,11 @@ All Admin API requests require authentication using the `X-API-KEY` header:
 import { ApisixSDK } from "apisix-sdk";
 
 const client = new ApisixSDK({
-  baseURL: "http://127.0.0.1:9180",
-  apiKey: "edd1c9f034335f136f87ad84b625c8f1", // Change in production!
-  timeout: 30000,
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180",
+    apiKey: "your-api-key",
+    timeout: 30000,
+  },
 });
 ```
 
@@ -55,10 +57,17 @@ const client = new ApisixSDK({
 
 ```typescript
 interface ApisixSDKConfig {
-  baseURL: string; // APISIX Admin API base URL
-  apiKey?: string; // API key for authentication
-  timeout?: number; // Request timeout in milliseconds (default: 30000)
-  headers?: Record<string, string>; // Additional headers
+  adminAPI: {
+    baseURL: string; // APISIX Admin API base URL
+    apiKey?: string; // API key for authentication
+    timeout?: number; // Request timeout in milliseconds
+    headers?: Record<string, string>; // Additional headers
+  };
+  controlAPI?: {
+    baseURL: string; // Control API base URL
+    timeout?: number; // Timeout for Control API
+    headers?: Record<string, string>; // Additional headers
+  };
 }
 ```
 
@@ -66,8 +75,14 @@ interface ApisixSDKConfig {
 
 ```typescript
 const client = new ApisixSDK({
-  baseURL: process.env.APISIX_BASE_URL || "http://127.0.0.1:9180",
-  apiKey: process.env.APISIX_API_KEY,
+  adminAPI: {
+    baseURL: process.env.APISIX_ADMIN_URL || "http://127.0.0.1:9180",
+    apiKey: process.env.APISIX_API_KEY,
+    timeout: Number(process.env.APISIX_TIMEOUT) || 30000,
+  },
+  controlAPI: {
+    baseURL: process.env.APISIX_CONTROL_URL || "http://127.0.0.1:9090",
+  },
 });
 ```
 

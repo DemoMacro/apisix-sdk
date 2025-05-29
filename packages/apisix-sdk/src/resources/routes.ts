@@ -78,7 +78,7 @@ export class Routes {
    */
   async delete(id: string, options?: { force?: boolean }): Promise<boolean> {
     // Check if version supports features before using them
-    const versionConfig = await this.client.getApiVersionConfig();
+    const _versionConfig = await this.client.getApiVersionConfig();
 
     if (options?.force) {
       await this.client.removeWithQuery(
@@ -116,21 +116,44 @@ export class Routes {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allRoutes = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedRoutes = allRoutes.slice(start, end);
+
+      return {
+        routes: paginatedRoutes,
+        total: allRoutes.length,
+        hasMore: end < allRoutes.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
-      ...filters,
     };
+
+    if (filters) {
+      Object.assign(options, filters);
+    }
 
     const response = await this.client.list<Route>(
       this.client.getAdminEndpoint(this.endpoint),
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
-      routes: await this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      routes: this.client.extractList(response),
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

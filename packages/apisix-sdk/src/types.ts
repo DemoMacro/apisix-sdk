@@ -479,10 +479,17 @@ export interface DiscoveryDump {
 
 // Configuration types
 export interface ApisixSDKConfig {
-  baseURL: string;
-  apiKey?: string;
-  timeout?: number;
-  headers?: Record<string, string>;
+  adminAPI: {
+    baseURL: string; // Admin API base URL (default: http://127.0.0.1:9180)
+    apiKey?: string;
+    timeout?: number;
+    headers?: Record<string, string>;
+  };
+  controlAPI?: {
+    baseURL: string; // Control API base URL (default: http://127.0.0.1:9090)
+    timeout?: number;
+    headers?: Record<string, string>;
+  };
 }
 
 // Utility types

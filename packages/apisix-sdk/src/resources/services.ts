@@ -107,21 +107,44 @@ export class Services {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allServices = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedServices = allServices.slice(start, end);
+
+      return {
+        services: paginatedServices,
+        total: allServices.length,
+        hasMore: end < allServices.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
-      ...filters,
     };
+
+    if (filters) {
+      Object.assign(options, filters);
+    }
 
     const response = await this.client.list<Service>(
       this.client.getAdminEndpoint(this.endpoint),
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
       services: this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

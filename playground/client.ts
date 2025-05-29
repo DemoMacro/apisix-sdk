@@ -17,9 +17,14 @@ export async function createClient(): Promise<ApisixSDK> {
 
   // Create client instance
   _client = new ApisixSDK({
-    baseURL: config.apisix.adminUrl,
-    apiKey: config.apisix.apiKey,
-    timeout: config.apisix.timeout,
+    adminAPI: {
+      baseURL: config.apisix.adminURL,
+      apiKey: config.apisix.apiKey,
+      timeout: config.apisix.timeout,
+    },
+    controlAPI: {
+      baseURL: config.apisix.controlURL,
+    },
   });
 
   return _client;
@@ -50,9 +55,14 @@ export async function createTestClient(): Promise<ApisixSDK> {
   const config = await loadAppConfig();
 
   return new ApisixSDK({
-    baseURL: config.apisix.adminUrl,
-    apiKey: config.apisix.apiKey,
-    timeout: config.test.timeout,
+    adminAPI: {
+      baseURL: config.apisix.adminURL,
+      apiKey: config.apisix.apiKey,
+      timeout: config.test.timeout,
+    },
+    controlAPI: {
+      baseURL: config.apisix.controlURL,
+    },
   });
 }
 
@@ -76,8 +86,8 @@ export async function validateConnection(client?: ApisixSDK): Promise<boolean> {
 export function getClientConfig() {
   const config = getConfig();
   return {
-    adminUrl: config.apisix.adminUrl,
-    controlUrl: config.apisix.controlUrl,
+    adminURL: config.apisix.adminURL,
+    controlURL: config.apisix.controlURL,
     timeout: config.apisix.timeout,
     logLevel: config.apisix.logLevel,
     testConfig: config.test,

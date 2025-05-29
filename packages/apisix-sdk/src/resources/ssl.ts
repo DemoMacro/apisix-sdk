@@ -107,6 +107,24 @@ export class SSLCertificates {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allCertificates = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedCertificates = allCertificates.slice(start, end);
+
+      return {
+        certificates: paginatedCertificates,
+        total: allCertificates.length,
+        hasMore: end < allCertificates.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -121,10 +139,12 @@ export class SSLCertificates {
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
-      certificates: await this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      certificates: this.client.extractList(response),
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

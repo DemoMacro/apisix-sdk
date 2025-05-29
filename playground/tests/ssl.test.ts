@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ApisixSDK } from "../../packages/apisix-sdk/src";
 import { createTestClient, resetClient, validateConnection } from "../client";
+import { TestHelpers } from "./test-helpers";
 
 describe("APISIX SDK - SSL Certificates Management", () => {
   let client: ApisixSDK;
+  let helpers: TestHelpers;
   const testIds = {
     ssl: "test-ssl-cert",
     sslWithSni: "test-ssl-sni",
@@ -11,34 +13,9 @@ describe("APISIX SDK - SSL Certificates Management", () => {
     sslForClone: "test-ssl-clone",
   };
 
-  // Test certificate data
-  const testCert = {
-    cert: `-----BEGIN CERTIFICATE-----
-MIIDXTCCAkWgAwIBAgIJAL+4jlKl1K4iMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
-BAYTAkFVMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX
-aWRnaXRzIFB0eSBMdGQwHhcNMjMwMTAxMDAwMDAwWhcNMjQwMTAxMDAwMDAwWjBF
-MQswCQYDVQQGEwJBVTETMBEGA1UECAwKU29tZS1TdGF0ZTEhMB8GA1UECgwYSW50
-ZXJuZXQgV2lkZ2l0cyBQdHkgTHRkMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIB
-CgKCAQEAwL7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl
-1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i
-8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w
-8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl
-1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i8L7w8VKl1K4i
-QIDAQAB
------END CERTIFICATE-----`,
-    key: `-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDAvvDxUqXUriLw
-vvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDx
-UqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXU
-riLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLw
-vvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDx
-UqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXUriLwvvDxUqXU
-riECAwEAAQ==
------END PRIVATE KEY-----`,
-  };
-
   beforeAll(async () => {
     client = await createTestClient();
+    helpers = new TestHelpers(client);
 
     // Validate connection
     const isConnected = await validateConnection(client);
@@ -77,17 +54,18 @@ riECAwEAAQ==
   describe("SSL Certificate Management", () => {
     it("should create SSL certificate with SNI", async () => {
       try {
+        const testCert = helpers.getSimpleSSLCertificate();
         const ssl = await client.ssl.create(
           {
             ...testCert,
-            snis: ["example.com", "www.example.com"],
+            snis: ["127.0.0.1", "localhost", "apisix-sdk.test"],
           },
           testIds.sslWithSni,
         );
 
         expect(ssl).toBeDefined();
         expect(ssl.id).toBe(testIds.sslWithSni);
-        expect(ssl.snis).toEqual(["example.com", "www.example.com"]);
+        expect(ssl.snis).toEqual(["127.0.0.1", "localhost", "apisix-sdk.test"]);
       } catch (error) {
         console.warn("SSL certificate creation failed:", error);
       }
@@ -95,6 +73,7 @@ riECAwEAAQ==
 
     it("should check if SSL certificate exists", async () => {
       try {
+        const testCert = helpers.getSimpleSSLCertificate();
         await client.ssl.create(testCert, testIds.ssl);
         const exists = await client.ssl.exists(testIds.ssl);
         expect(exists).toBe(true);
@@ -108,12 +87,12 @@ riECAwEAAQ==
 
     it("should find SSL certificates by SNI", async () => {
       try {
-        const certificates = await client.ssl.findBySNI("example.com");
+        const certificates = await client.ssl.findBySNI("127.0.0.1");
         expect(Array.isArray(certificates)).toBe(true);
 
         if (certificates.length > 0) {
           expect(
-            certificates.some((cert) => cert.snis?.includes("example.com")),
+            certificates.some((cert) => cert.snis?.includes("127.0.0.1")),
           ).toBe(true);
         }
       } catch (error) {
@@ -136,6 +115,7 @@ riECAwEAAQ==
     it("should enable and disable SSL certificate", async () => {
       try {
         // Create a certificate first
+        const testCert = helpers.getSimpleSSLCertificate();
         await client.ssl.create(testCert, testIds.ssl);
 
         // Disable the certificate
@@ -152,12 +132,13 @@ riECAwEAAQ==
 
     it("should check SSL certificate expiration", async () => {
       try {
-        // Create a certificate with expiration date
-        const futureDate = Math.floor(Date.now() / 1000) + 365 * 24 * 60 * 60; // 1 year from now
+        // Create a certificate without validity_end (APISIX doesn't support this field)
+        const testCert = helpers.getSimpleSSLCertificate();
         await client.ssl.create(
           {
             ...testCert,
-            validity_end: futureDate,
+            // Note: APISIX SSL objects don't support validity_end field
+            // Expiration is determined from the certificate itself
           },
           testIds.sslForExpiration,
         );
@@ -197,10 +178,11 @@ riECAwEAAQ==
     it("should clone SSL certificate", async () => {
       try {
         // Create source certificate
+        const testCert = helpers.getSimpleSSLCertificate();
         await client.ssl.create(
           {
             ...testCert,
-            snis: ["source.example.com"],
+            snis: ["source.apisix-sdk.test"],
           },
           testIds.sslForClone,
         );
@@ -209,14 +191,14 @@ riECAwEAAQ==
         const clonedCert = await client.ssl.clone(
           testIds.sslForClone,
           {
-            snis: ["cloned.example.com"],
+            snis: ["cloned.apisix-sdk.test"],
           },
           `${testIds.sslForClone}-cloned`,
         );
 
         expect(clonedCert).toBeDefined();
         expect(clonedCert.id).toBe(`${testIds.sslForClone}-cloned`);
-        expect(clonedCert.snis).toEqual(["cloned.example.com"]);
+        expect(clonedCert.snis).toEqual(["cloned.apisix-sdk.test"]);
       } catch (error) {
         console.warn("SSL clone failed:", error);
       }
@@ -224,20 +206,26 @@ riECAwEAAQ==
 
     it("should list SSL certificates with pagination", async () => {
       try {
-        const result = await client.ssl.listPaginated(1, 5);
+        const result = await client.ssl.listPaginated(1, 10);
 
         expect(result).toBeDefined();
         expect(Array.isArray(result.certificates)).toBe(true);
         expect(typeof result.total).toBe("number");
         expect(typeof result.hasMore).toBe("boolean");
-      } catch (error) {
-        console.warn("SSL pagination failed:", error);
+      } catch (error: any) {
+        // Pagination may not be supported in this APISIX version
+        if (error.response?.status === 400) {
+          console.warn("SSL pagination not supported in this APISIX version");
+        } else {
+          console.warn("SSL pagination failed:", error);
+        }
       }
     });
 
     it("should handle SSL certificate with no expiration date", async () => {
       try {
         // Create certificate without validity_end
+        const testCert = helpers.getSimpleSSLCertificate();
         await client.ssl.create(testCert, testIds.ssl);
 
         const expirationInfo = await client.ssl.checkExpiration(testIds.ssl);
@@ -249,6 +237,24 @@ riECAwEAAQ==
       } catch (error) {
         console.warn("SSL expiration check (no date) failed:", error);
       }
+    });
+
+    it("should create a new SSL certificate", async () => {
+      const { cert, key } = helpers.getSimpleSSLCertificate();
+
+      const sslData = {
+        cert,
+        key,
+        snis: ["example.com"],
+      };
+
+      const response = await client.ssl.create(sslData, testIds.ssl);
+      expect(response).toBeDefined();
+      expect(response.cert).toBe(cert);
+      expect(response.key).toBeDefined();
+      expect(typeof response.key).toBe("string");
+      expect(response.key.length).toBeGreaterThan(0);
+      expect(response.snis).toEqual(["example.com"]);
     });
   });
 

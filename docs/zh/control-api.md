@@ -47,9 +47,13 @@ apisix:
 import { ApisixSDK } from "apisix-sdk";
 
 const client = new ApisixSDK({
-  baseURL: "http://127.0.0.0.1:9180", // 管理 API URL
-  controlURL: "http://127.0.0.1:9090", // 控制 API URL (可选)
-  apiKey: "your-api-key",
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180", // Admin API URL
+    apiKey: "your-api-key",
+  },
+  controlAPI: {
+    baseURL: "http://127.0.0.1:9090", // Control API URL
+  },
 });
 ```
 

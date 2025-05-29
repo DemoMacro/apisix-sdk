@@ -31,10 +31,13 @@ yarn add apisix-sdk
 ```typescript
 import { ApisixSDK } from "apisix-sdk";
 
-// Create SDK instance
+// Initialize the SDK
 const client = new ApisixSDK({
-  baseURL: "http://127.0.0.1:9180",
-  apiKey: "your-api-key",
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180",
+    apiKey: "your-api-key",
+    timeout: 30000,
+  },
 });
 
 // Test connection
@@ -60,15 +63,19 @@ console.log("Route created:", route.id);
 ## Configuration
 
 ```typescript
-const client = new ApisixSDK({
-  baseURL: "http://127.0.0.1:9180", // APISIX Admin API URL
-  apiKey: "your-api-key", // API Key for authentication
-  timeout: 30000, // Request timeout in milliseconds
-  headers: {
-    // Custom headers
-    "Custom-Header": "value",
-  },
-});
+interface ApisixSDKConfig {
+  adminAPI: {
+    baseURL: string; // APISIX Admin API base URL (default: http://127.0.0.1:9180)
+    apiKey?: string; // API key for authentication (Admin API only)
+    timeout?: number; // Request timeout in milliseconds (default: 30000)
+    headers?: Record<string, string>; // Additional headers for Admin API
+  };
+  controlAPI?: {
+    baseURL: string; // Control API base URL (default: http://127.0.0.1:9090)
+    timeout?: number; // Control API specific timeout
+    headers?: Record<string, string>; // Additional headers for Control API
+  };
+}
 ```
 
 ## Documentation
@@ -77,7 +84,7 @@ For detailed API documentation and usage examples, please refer to:
 
 - **[Admin API Documentation](./docs/en/admin-api.md)** - Complete guide to APISIX Admin API
 - **[Control API Documentation](./docs/en/control-api.md)** - Control API for monitoring and management
-- **[Examples](./playground/)** - Practical usage examples
+- **[Playground](./playground/)** - Comprehensive test examples and usage patterns
 
 ## Development
 
@@ -95,7 +102,11 @@ apisix-sdk/
 ├── docs/                    # Documentation
 │   ├── en/                  # English documentation
 │   └── zh/                  # Chinese documentation
-├── playground/              # Examples and testing
+├── playground/              # Test environment and configuration
+│   ├── tests/               # Comprehensive test cases
+│   ├── client.ts            # Unified client configuration
+│   └── config.ts            # Configuration management
+├── vitest.config.ts         # Test configuration
 └── package.json
 ```
 
@@ -113,13 +124,17 @@ pnpm build
 pnpm dev
 ```
 
-### Running Examples
+### Running Tests
 
 ```bash
-# Make sure APISIX is running on http://127.0.0.1:9180
-# Run examples
-cd playground
-npx tsx example.ts
+# Run all tests
+pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+
+# Generate test coverage report
+pnpm test:coverage
 ```
 
 ## Requirements

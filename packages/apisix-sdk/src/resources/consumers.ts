@@ -23,7 +23,7 @@ export class Consumers {
       this.client.getAdminEndpoint(this.endpoint),
       options,
     );
-    return await this.client.extractList(response);
+    return this.client.extractList(response);
   }
 
   /**
@@ -125,6 +125,24 @@ export class Consumers {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allConsumers = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedConsumers = allConsumers.slice(start, end);
+
+      return {
+        consumers: paginatedConsumers,
+        total: allConsumers.length,
+        hasMore: end < allConsumers.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -139,10 +157,12 @@ export class Consumers {
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
-      consumers: await this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      consumers: this.client.extractList(response),
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 
@@ -169,7 +189,7 @@ export class Consumers {
     const response = await this.client.list<ConsumerCredential>(
       this.client.getAdminEndpoint(`${this.endpoint}/${username}/credentials`),
     );
-    return await this.client.extractList(response);
+    return this.client.extractList(response);
   }
 
   /**

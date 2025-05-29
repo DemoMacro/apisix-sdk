@@ -284,11 +284,11 @@ describe("APISIX SDK - Routes Management", () => {
         return;
       }
 
-      const result = await client.routes.listPaginated(1, 5);
+      const result = await client.routes.listPaginated(1, 10);
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.routes)).toBe(true);
-      expect(result.routes.length).toBeLessThanOrEqual(5);
+      expect(result.routes.length).toBeLessThanOrEqual(10);
     });
   });
 
@@ -540,7 +540,7 @@ describe("APISIX SDK - Routes Management", () => {
 
     it("should search routes with advanced criteria", async () => {
       // Create a test route first
-      const testRoute = await client.routes.create(
+      const _testRoute = await client.routes.create(
         {
           name: "search-test-route",
           uri: "/api/search/test",
@@ -629,14 +629,14 @@ describe("APISIX SDK - Routes Management", () => {
       try {
         await client.routes.delete("getUsers").catch(() => {});
         await client.routes.delete("getUserById").catch(() => {});
-      } catch (error) {
+      } catch (_error) {
         // Ignore cleanup errors
       }
     });
 
     it("should export routes to OpenAPI specification", async () => {
       // Create a test route
-      const testRoute = await client.routes.create(
+      const _testRoute = await client.routes.create(
         {
           name: "export-test-route",
           uri: "/export/test",

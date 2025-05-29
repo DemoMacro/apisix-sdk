@@ -1,13 +1,9 @@
 import type { ApisixClient } from "../client";
 import type {
-  ConnectionStatistics,
   DiscoveryDump,
   DiscoveryDumpFile,
-  DiscoveryDumpNode,
-  DiscoveryServices,
   HealthCheckStatus,
   PluginInfo,
-  RequestStatistics,
   SchemaInfo,
   ServerInfo,
   UpstreamHealth,
@@ -25,9 +21,8 @@ export class Control {
    */
   async isHealthy(): Promise<boolean> {
     try {
-      const response = await this.client.get<HealthCheckStatus>(
-        this.client.getControlEndpoint("/v1/healthcheck"),
-      );
+      const response =
+        await this.client.controlRequest<HealthCheckStatus>("/v1/healthcheck");
       return response.status === "ok";
     } catch {
       return false;
@@ -38,48 +33,84 @@ export class Control {
    * Get server information
    */
   async getServerInfo(): Promise<ServerInfo> {
-    return this.client.get<ServerInfo>(
-      this.client.getControlEndpoint("/v1/server_info"),
-    );
+    return this.client.controlRequest<ServerInfo>("/v1/server_info");
   }
 
   /**
    * Get all available plugins information
+   * Note: This endpoint is not available via Control API, use Admin API instead
    */
   async getPlugins(): Promise<PluginInfo[]> {
-    return this.client.get<PluginInfo[]>(
-      this.client.getControlEndpoint("/v1/plugins"),
-    );
+    try {
+      // Use Admin API endpoint instead of Control API
+      const response = await this.client.get<
+        string[] | Record<string, boolean>
+      >(this.client.getAdminEndpoint("/plugins/list"));
+
+      // Handle different response formats
+      if (Array.isArray(response)) {
+        // If response is an array of plugin names
+        return response.map((name) => ({
+          name,
+          enabled: true, // Assume enabled if listed
+        })) as PluginInfo[];
+      }
+      // If response is an object with plugin states
+      return Object.entries(response).map(([name, enabled]) => ({
+        name,
+        enabled,
+      })) as PluginInfo[];
+    } catch (error) {
+      console.warn("Failed to get plugins from Admin API:", error);
+      return [];
+    }
   }
 
   /**
    * Get upstream health check status
+   * Note: APISIX requires specific upstream ID for health check queries
    */
   async getUpstreamHealth(upstreamName?: string): Promise<UpstreamHealth[]> {
-    const endpoint = upstreamName
-      ? `/v1/healthcheck/upstreams/${upstreamName}`
-      : "/v1/healthcheck/upstreams";
-
-    return this.client.get<UpstreamHealth[]>(
-      this.client.getControlEndpoint(endpoint),
-    );
+    try {
+      if (upstreamName) {
+        // Get specific upstream health
+        const result = await this.client.controlRequest<UpstreamHealth>(
+          `/v1/healthcheck/upstreams/${upstreamName}`,
+        );
+        return [result];
+      }
+      // Get all health check statuses (without specific upstream filter)
+      const result =
+        await this.client.controlRequest<UpstreamHealth[]>("/v1/healthcheck");
+      return result;
+    } catch (error) {
+      console.warn("Upstream health check not available:", error);
+      return [];
+    }
   }
 
   /**
    * Get services dump for service discovery
+   * Note: Requires service discovery to be configured (nacos, consul, eureka)
    */
-  async getServiceDump(): Promise<DiscoveryDump> {
-    return this.client.get<DiscoveryDump>(
-      this.client.getControlEndpoint("/v1/discovery/nacos/dump"),
-    );
+  async getServiceDump(service = "nacos"): Promise<DiscoveryDump> {
+    try {
+      return await this.client.controlRequest<DiscoveryDump>(
+        `/v1/discovery/${service}/dump`,
+      );
+    } catch (error) {
+      throw new Error(
+        `Service discovery '${service}' not configured or not available: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
   }
 
   /**
    * Get runtime upstreams information
    */
   async getUpstreams(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/upstreams"),
+    return this.client.controlRequest<Record<string, unknown>[]>(
+      "/v1/upstreams",
     );
   }
 
@@ -87,8 +118,8 @@ export class Control {
    * Get specific upstream runtime information
    */
   async getUpstream(upstreamId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/upstreams/${upstreamId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/upstreams/${upstreamId}`,
     );
   }
 
@@ -96,17 +127,15 @@ export class Control {
    * Get all available schemas
    */
   async getSchemas(): Promise<SchemaInfo> {
-    return this.client.get<SchemaInfo>(
-      this.client.getControlEndpoint("/v1/schema"),
-    );
+    return this.client.controlRequest<SchemaInfo>("/v1/schema");
   }
 
   /**
    * Get schema for a specific resource type
    */
   async getSchema(resourceType: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/schema/${resourceType}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/schema/${resourceType}`,
     );
   }
 
@@ -114,28 +143,33 @@ export class Control {
    * Get schema for a specific plugin
    */
   async getPluginSchema(pluginName: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/schema/plugin/${pluginName}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/schema/plugin/${pluginName}`,
     );
   }
 
   /**
    * Get discovery dump files list
+   * Note: Requires service discovery to be configured
    */
-  async getDiscoveryDumpFiles(): Promise<DiscoveryDumpFile[]> {
-    return this.client.get<DiscoveryDumpFile[]>(
-      this.client.getControlEndpoint("/v1/discovery/nacos/dump_files"),
-    );
+  async getDiscoveryDumpFiles(service = "nacos"): Promise<DiscoveryDumpFile[]> {
+    try {
+      return await this.client.controlRequest<DiscoveryDumpFile[]>(
+        `/v1/discovery/${service}/dump_files`,
+      );
+    } catch (error) {
+      throw new Error(
+        `Service discovery '${service}' dump files not available: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
   }
 
   /**
    * Get discovery dump file content
    */
   async getDiscoveryDumpFile(filename: string): Promise<string> {
-    return this.client.get<string>(
-      this.client.getControlEndpoint(
-        `/v1/discovery/nacos/dump_file/${filename}`,
-      ),
+    return this.client.controlRequest<string>(
+      `/v1/discovery/nacos/dump_file/${filename}`,
     );
   }
 
@@ -145,9 +179,9 @@ export class Control {
   async getPluginMetadata(): Promise<
     Array<{ id: string; [key: string]: unknown }>
   > {
-    return this.client.get<Array<{ id: string; [key: string]: unknown }>>(
-      this.client.getControlEndpoint("/v1/plugin_metadatas"),
-    );
+    return this.client.controlRequest<
+      Array<{ id: string; [key: string]: unknown }>
+    >("/v1/plugin_metadatas");
   }
 
   /**
@@ -156,8 +190,8 @@ export class Control {
   async getPluginMetadataById(
     pluginName: string,
   ): Promise<{ id: string; [key: string]: unknown }> {
-    return this.client.get<{ id: string; [key: string]: unknown }>(
-      this.client.getControlEndpoint(`/v1/plugin_metadata/${pluginName}`),
+    return this.client.controlRequest<{ id: string; [key: string]: unknown }>(
+      `/v1/plugin_metadata/${pluginName}`,
     );
   }
 
@@ -165,26 +199,22 @@ export class Control {
    * Get current APISIX configuration
    */
   async getConfig(): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint("/v1/config"),
-    );
+    return this.client.controlRequest<Record<string, unknown>>("/v1/config");
   }
 
   /**
    * Get active routes
    */
   async getRoutes(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/routes"),
-    );
+    return this.client.controlRequest<Record<string, unknown>[]>("/v1/routes");
   }
 
   /**
    * Get specific route runtime information
    */
   async getRoute(routeId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/routes/${routeId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/routes/${routeId}`,
     );
   }
 
@@ -192,8 +222,8 @@ export class Control {
    * Get active services
    */
   async getServices(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/services"),
+    return this.client.controlRequest<Record<string, unknown>[]>(
+      "/v1/services",
     );
   }
 
@@ -201,8 +231,8 @@ export class Control {
    * Get specific service runtime information
    */
   async getService(serviceId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/services/${serviceId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/services/${serviceId}`,
     );
   }
 
@@ -210,8 +240,8 @@ export class Control {
    * Get active consumers
    */
   async getConsumers(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/consumers"),
+    return this.client.controlRequest<Record<string, unknown>[]>(
+      "/v1/consumers",
     );
   }
 
@@ -219,8 +249,8 @@ export class Control {
    * Get specific consumer runtime information
    */
   async getConsumer(consumerId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/consumers/${consumerId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/consumers/${consumerId}`,
     );
   }
 
@@ -228,17 +258,15 @@ export class Control {
    * Get SSL certificates
    */
   async getSSLCertificates(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/ssl"),
-    );
+    return this.client.controlRequest<Record<string, unknown>[]>("/v1/ssl");
   }
 
   /**
    * Get specific SSL certificate
    */
   async getSSLCertificate(certId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/ssl/${certId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/ssl/${certId}`,
     );
   }
 
@@ -246,8 +274,8 @@ export class Control {
    * Get global rules
    */
   async getGlobalRules(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/global_rules"),
+    return this.client.controlRequest<Record<string, unknown>[]>(
+      "/v1/global_rules",
     );
   }
 
@@ -255,8 +283,8 @@ export class Control {
    * Get specific global rule
    */
   async getGlobalRule(ruleId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/global_rules/${ruleId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/global_rules/${ruleId}`,
     );
   }
 
@@ -264,8 +292,8 @@ export class Control {
    * Get consumer groups
    */
   async getConsumerGroups(): Promise<Record<string, unknown>[]> {
-    return this.client.get<Record<string, unknown>[]>(
-      this.client.getControlEndpoint("/v1/consumer_groups"),
+    return this.client.controlRequest<Record<string, unknown>[]>(
+      "/v1/consumer_groups",
     );
   }
 
@@ -273,8 +301,8 @@ export class Control {
    * Get specific consumer group
    */
   async getConsumerGroup(groupId: string): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint(`/v1/consumer_groups/${groupId}`),
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/consumer_groups/${groupId}`,
     );
   }
 
@@ -282,119 +310,118 @@ export class Control {
    * Trigger garbage collection
    */
   async triggerGC(): Promise<{ message: string }> {
-    return this.client.post<{ message: string }>(
-      this.client.getControlEndpoint("/v1/gc"),
-    );
+    return this.client.controlRequest<{ message: string }>("/v1/gc", {
+      method: "POST",
+    });
   }
 
   /**
-   * Get comprehensive system overview
+   * Get system overview with proper error handling for unavailable endpoints
    */
   async getSystemOverview(): Promise<{
     server: ServerInfo;
     schemas: SchemaInfo;
     health: boolean;
     upstreamHealth: UpstreamHealth[];
-    requestStats: Record<string, unknown>;
-    connectionStats: Record<string, unknown>;
     discoveryServices?: Record<string, unknown>;
   }> {
-    const [server, schemas, health, requestStats, connectionStats] =
-      await Promise.all([
-        this.getServerInfo(),
-        this.getSchemas(),
-        this.isHealthy(),
-        this.getRequestStatistics(),
-        this.getConnectionStatistics(),
-      ]);
+    const [server, schemas] = await Promise.all([
+      this.getServerInfo(),
+      this.getSchemas(),
+    ]);
 
-    // Get upstream health (this might fail on some setups)
+    let health = false;
+    try {
+      const healthStatus = await this.healthCheck();
+      health = healthStatus.status === "ok";
+    } catch {
+      // Health check not available
+      health = false;
+    }
+
     let upstreamHealth: UpstreamHealth[] = [];
     try {
       upstreamHealth = await this.getUpstreamHealth();
-    } catch {
-      // Ignore errors for upstream health
+    } catch (error) {
+      // Upstream health not available or requires specific ID
+      console.warn("Upstream health check not available:", error);
+      upstreamHealth = [];
     }
 
-    // Get discovery services if available
-    let discoveryServices: Record<string, unknown> | undefined;
-    try {
-      discoveryServices = await this.getDiscoveryMetrics();
-    } catch {
-      // Ignore errors for discovery services
-    }
-
-    return {
+    const result = {
       server,
       schemas,
       health,
       upstreamHealth,
-      requestStats,
-      connectionStats,
-      discoveryServices,
     };
-  }
 
-  /**
-   * Get service discovery metrics
-   */
-  async getDiscoveryMetrics(): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint("/v1/discovery/metrics"),
-    );
+    // Try to get discovery services via service dump instead of non-existent metrics endpoint
+    try {
+      const discoveryDump = await this.getServiceDump();
+      (result as Record<string, unknown>).discoveryServices = discoveryDump;
+    } catch {
+      // Discovery services not available
+    }
+
+    return result;
   }
 
   /**
    * Get memory usage statistics
    */
   async getMemoryStats(): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint("/v1/memory_stats"),
+    return this.client.controlRequest<Record<string, unknown>>(
+      "/v1/memory_stats",
     );
   }
 
   /**
-   * Get Prometheus metrics (from Control API)
+   * Get Prometheus metrics (from Prometheus export server on port 9091)
+   * Note: Prometheus metrics are NOT available via Control API port 9090
    */
   async getPrometheusMetrics(): Promise<string> {
-    return this.client.get<string>(
-      this.client.getControlEndpoint("/apisix/prometheus/metrics"),
-    );
-  }
+    try {
+      // Try the default Prometheus export server on port 9091
+      const prometheusUrl = "http://127.0.0.1:9091/apisix/prometheus/metrics";
+      const response = await fetch(prometheusUrl);
 
-  /**
-   * Get request statistics
-   */
-  async getRequestStatistics(): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint("/v1/requests"),
-    );
-  }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
 
-  /**
-   * Get connection statistics
-   */
-  async getConnectionStatistics(): Promise<Record<string, unknown>> {
-    return this.client.get<Record<string, unknown>>(
-      this.client.getControlEndpoint("/v1/connections"),
-    );
+      return await response.text();
+    } catch (error) {
+      // Fallback: try via public API on port 9080 if export server is disabled
+      try {
+        const publicApiUrl = "http://127.0.0.1:9080/apisix/prometheus/metrics";
+        const response = await fetch(publicApiUrl);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        return await response.text();
+      } catch (fallbackError) {
+        throw new Error(
+          `Prometheus metrics not available on both 9091 and 9080 ports. Original error: ${error instanceof Error ? error.message : "Unknown error"}. Fallback error: ${fallbackError instanceof Error ? fallbackError.message : "Unknown error"}`,
+        );
+      }
+    }
   }
 
   /**
    * Health check endpoint
    */
   async healthCheck(): Promise<HealthCheckStatus> {
-    return this.client.get<HealthCheckStatus>(
-      this.client.getControlEndpoint("/v1/healthcheck"),
-    );
+    return this.client.controlRequest<HealthCheckStatus>("/v1/healthcheck");
   }
 
   /**
    * Trigger plugins reload
    */
   async reloadPlugins(): Promise<{ message: string }> {
-    return this.client.put<{ message: string }>(
-      this.client.getControlEndpoint("/v1/plugins/reload"),
+    return this.client.controlRequest<{ message: string }>(
+      "/v1/plugins/reload",
     );
   }
 

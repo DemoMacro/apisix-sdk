@@ -43,6 +43,14 @@ export class StreamRoutes {
     streamRoute: CreateInput<StreamRoute>,
     id?: string,
   ): Promise<StreamRoute> {
+    // Validate configuration before creating
+    const validation = this.validateConfig(streamRoute);
+    if (!validation.valid) {
+      throw new Error(
+        `Invalid stream route configuration: ${validation.errors.join(", ")}`,
+      );
+    }
+
     const response = await this.client.create<StreamRoute>(
       this.client.getAdminEndpoint(this.endpoint),
       streamRoute,
@@ -52,12 +60,24 @@ export class StreamRoutes {
   }
 
   /**
-   * Update an existing stream route
+   * Update an existing stream route (full update)
    */
   async update(
     id: string,
     streamRoute: UpdateInput<StreamRoute>,
   ): Promise<StreamRoute> {
+    // Validate configuration before updating
+    if (Object.keys(streamRoute).length > 0) {
+      const validation = this.validateConfig(
+        streamRoute as CreateInput<StreamRoute>,
+      );
+      if (!validation.valid) {
+        throw new Error(
+          `Invalid stream route configuration: ${validation.errors.join(", ")}`,
+        );
+      }
+    }
+
     const response = await this.client.update<StreamRoute>(
       this.client.getAdminEndpoint(this.endpoint),
       id,
@@ -68,17 +88,37 @@ export class StreamRoutes {
 
   /**
    * Partially update an existing stream route
+   * Note: PATCH method is not supported for stream routes in APISIX
+   * This method will fall back to using PUT method
    */
   async patch(
     id: string,
     streamRoute: UpdateInput<StreamRoute>,
   ): Promise<StreamRoute> {
-    const response = await this.client.partialUpdate<StreamRoute>(
-      this.client.getAdminEndpoint(this.endpoint),
-      id,
-      streamRoute,
+    console.warn(
+      "PATCH method not supported for stream routes, using PUT instead",
     );
-    return this.client.extractValue(response);
+
+    try {
+      // Get current stream route first
+      const current = await this.get(id);
+
+      // Merge with current data for complete update
+      const mergedData = {
+        ...current,
+        ...streamRoute,
+      };
+
+      // Remove fields that shouldn't be in update request
+      const { id: _, create_time, update_time, ...updateData } = mergedData;
+
+      return this.update(id, updateData);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not supported")) {
+        throw new Error("PATCH method is not supported for stream routes");
+      }
+      throw error;
+    }
   }
 
   /**
@@ -110,7 +150,7 @@ export class StreamRoutes {
   }
 
   /**
-   * List stream routes with pagination support
+   * List stream routes with pagination support (v3 API)
    */
   async listPaginated(
     page = 1,
@@ -121,21 +161,44 @@ export class StreamRoutes {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allStreamRoutes = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedStreamRoutes = allStreamRoutes.slice(start, end);
+
+      return {
+        streamRoutes: paginatedStreamRoutes,
+        total: allStreamRoutes.length,
+        hasMore: end < allStreamRoutes.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
-      ...filters,
     };
+
+    if (filters) {
+      Object.assign(options, filters);
+    }
 
     const response = await this.client.list<StreamRoute>(
       this.client.getAdminEndpoint(this.endpoint),
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
       streamRoutes: this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 
@@ -164,7 +227,7 @@ export class StreamRoutes {
   }
 
   /**
-   * Find stream routes by SNI (Server Name Indication)
+   * Find stream routes by SNI
    */
   async findBySNI(sni: string): Promise<StreamRoute[]> {
     const routes = await this.list();
@@ -206,86 +269,52 @@ export class StreamRoutes {
   }
 
   /**
-   * Create a TCP stream route
+   * Create TCP stream route
    */
   async createTCPRoute(
-    config: {
-      server_addr?: string;
-      server_port: number;
-      remote_addr?: string;
-      upstream_id?: string;
-      upstream?: object;
-      plugins?: Record<string, unknown>;
-    },
+    data: CreateInput<StreamRoute>,
     id?: string,
   ): Promise<StreamRoute> {
-    const streamRoute: CreateInput<StreamRoute> = {
-      ...config,
-      protocol: {
-        name: "tcp",
-      },
-    };
-
-    return this.create(streamRoute, id);
+    // TCP routes don't need special protocol configuration
+    return this.create(data, id);
   }
 
   /**
-   * Create a UDP stream route
+   * Create UDP stream route
    */
   async createUDPRoute(
-    config: {
-      server_addr?: string;
-      server_port: number;
-      remote_addr?: string;
-      upstream_id?: string;
-      upstream?: object;
-      plugins?: Record<string, unknown>;
-    },
+    data: CreateInput<StreamRoute>,
     id?: string,
   ): Promise<StreamRoute> {
-    const streamRoute: CreateInput<StreamRoute> = {
-      ...config,
-      protocol: {
-        name: "udp",
-      },
-    };
-
-    return this.create(streamRoute, id);
+    // UDP routes don't need special protocol configuration
+    return this.create(data, id);
   }
 
   /**
-   * Create a TLS stream route
+   * Create TLS stream route
    */
   async createTLSRoute(
-    config: {
-      server_addr?: string;
-      server_port: number;
-      sni?: string;
-      remote_addr?: string;
-      upstream_id?: string;
-      upstream?: object;
-      plugins?: Record<string, unknown>;
-    },
+    data: CreateInput<StreamRoute>,
     id?: string,
   ): Promise<StreamRoute> {
-    const streamRoute: CreateInput<StreamRoute> = {
-      ...config,
-      protocol: {
-        name: "tls",
-      },
-    };
-
-    return this.create(streamRoute, id);
+    // TLS routes may need upstream scheme configuration
+    if (
+      data.upstream &&
+      typeof data.upstream === "object" &&
+      !("scheme" in data.upstream)
+    ) {
+      data.upstream = { ...data.upstream, scheme: "tls" };
+    }
+    return this.create(data, id);
   }
 
   /**
-   * Get stream routes with specific plugin
+   * Get stream routes by plugin
    */
   async getByPlugin(pluginName: string): Promise<StreamRoute[]> {
     const routes = await this.list();
     return routes.filter(
-      (route) =>
-        route.plugins && Object.keys(route.plugins).includes(pluginName),
+      (route) => route.plugins && pluginName in route.plugins,
     );
   }
 
@@ -314,12 +343,31 @@ export class StreamRoutes {
   } {
     const errors: string[] = [];
 
-    // Check required fields
-    if (!config.server_port) {
-      errors.push("server_port is required");
+    // Check for basic requirements
+    if (!config.upstream && !config.upstream_id && !config.service_id) {
+      errors.push(
+        "Stream route must have either upstream, upstream_id, or service_id",
+      );
     }
 
-    // Validate port range
+    // Check for conflicting configurations
+    if (config.upstream && config.upstream_id) {
+      errors.push("Cannot specify both upstream and upstream_id");
+    }
+
+    if (config.upstream_id && config.service_id) {
+      errors.push("Cannot specify both upstream_id and service_id");
+    }
+
+    // Validate server configuration
+    if (config.server_addr && !config.server_port) {
+      errors.push("server_port is required when server_addr is specified");
+    }
+
+    if (config.server_port && typeof config.server_port !== "number") {
+      errors.push("server_port must be a number");
+    }
+
     if (
       config.server_port &&
       (config.server_port < 1 || config.server_port > 65535)
@@ -327,19 +375,40 @@ export class StreamRoutes {
       errors.push("server_port must be between 1 and 65535");
     }
 
-    // Check upstream configuration
-    if (!config.upstream_id && !config.upstream && !config.service_id) {
-      errors.push(
-        "Either upstream_id, upstream object, or service_id must be provided",
-      );
+    // Validate remote address configuration
+    if (config.remote_addr && config.remote_addrs) {
+      errors.push("Cannot specify both remote_addr and remote_addrs");
     }
 
-    // Validate protocol configuration
-    if (
-      config.protocol?.name &&
-      !["tcp", "udp", "tls"].includes(config.protocol.name)
-    ) {
-      errors.push("Protocol name must be one of: tcp, udp, tls");
+    // Validate upstream configuration if present
+    if (config.upstream) {
+      if (!config.upstream.nodes && !config.upstream.service_name) {
+        errors.push("Upstream must have either nodes or service_name");
+      }
+
+      if (config.upstream.nodes) {
+        if (Array.isArray(config.upstream.nodes)) {
+          // Validate node array format
+          for (const node of config.upstream.nodes) {
+            if (!node.host || !node.port) {
+              errors.push("Each upstream node must have host and port");
+              break;
+            }
+          }
+        } else if (typeof config.upstream.nodes === "object") {
+          // Validate node object format (host:port => weight)
+          for (const [nodeKey, weight] of Object.entries(
+            config.upstream.nodes,
+          )) {
+            if (!nodeKey.includes(":") || typeof weight !== "number") {
+              errors.push(
+                "Upstream nodes object must be in format 'host:port': weight",
+              );
+              break;
+            }
+          }
+        }
+      }
     }
 
     return {

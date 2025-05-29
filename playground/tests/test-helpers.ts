@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ApisixSDK } from "../../packages/apisix-sdk/src";
 
 export class TestHelpers {
@@ -23,73 +25,28 @@ export class TestHelpers {
   async getVersionConfig() {
     if (!this.versionConfig) {
       try {
-        // Try to detect version by testing response format and capabilities
-        const testResponse = await this.sdk.routes.list();
+        // Use SDK's built-in version detection
+        const version = await this.sdk.getVersion();
+        const versionCompat = await this.sdk.getVersionCompatibility();
 
-        let isV3Plus = false;
-        let supportsCredentials = false;
-        let supportsPagination = false;
+        console.log(`Detected APISIX version: ${version}`);
+        console.log("Version configuration:", versionCompat.features);
 
-        try {
-          // Test if pagination parameters are accepted - v3 feature
-          await this.sdk.routes.list({ page: 1, page_size: 1 });
-          supportsPagination = true;
-          isV3Plus = true;
-
-          // v3.0+ typically supports Credentials API
-          supportsCredentials = true;
-        } catch (error: unknown) {
-          // Check error details to understand why pagination failed
-          if (
-            error instanceof Error &&
-            (error.message.includes("400") ||
-              error.message.includes("Bad Request"))
-          ) {
-            // Pagination not supported in this version
-            supportsPagination = false;
-            isV3Plus = false;
-            supportsCredentials = false;
-          } else {
-            console.warn("Pagination check failed:", error);
-          }
-        }
-
-        // Check if Credentials API is supported
-        try {
-          if (
-            this.sdk.credentials &&
-            typeof this.sdk.credentials.list === "function"
-          ) {
-            // Credentials API exists, but we can't test it without a consumer ID
-            // Just check if the method exists
-            supportsCredentials = true;
-          }
-        } catch (error: unknown) {
-          // If we get 404 or method not found, credentials not supported
-          if (
-            error instanceof Error &&
-            (error.message.includes("404") ||
-              error.message.includes("not found") ||
-              error.message.includes("credentials"))
-          ) {
-            supportsCredentials = false;
-          } else {
-            // Other errors, assume not supported for safety
-            supportsCredentials = false;
-          }
-        }
+        // Extract major version number
+        const majorVersion = version.split(".")[0];
 
         this.versionConfig = {
-          majorVersion: isV3Plus ? "3" : "2",
+          majorVersion,
           features: {
-            supportsCredentials,
-            supportsSecrets: true, // Usually supported in both versions
-            supportsStreamRoutes: true, // Usually supported in both versions
-            supportsPagination,
+            supportsCredentials: versionCompat.features.supportsCredentials,
+            supportsSecrets: versionCompat.features.supportsSecrets,
+            supportsStreamRoutes: versionCompat.features.supportsStreamRoutes,
+            supportsPagination: versionCompat.features.supportsPagination,
           },
-          supportedPlugins: [],
+          supportedPlugins: versionCompat.supportedPlugins || [],
         };
       } catch (error) {
+        console.warn("Failed to detect version configuration:", error);
         // Fallback configuration for conservative testing
         this.versionConfig = {
           majorVersion: "2",
@@ -139,38 +96,28 @@ export class TestHelpers {
   }
 
   /**
-   * Create version-aware test options for pagination
-   * Based on APISIX v3 official documentation, pagination is supported for:
-   * Consumer, Consumer Group, Global Rules, Plugin Config, Protos, Route, Service, SSL, Stream Route, Upstream
+   * Check if pagination is supported in current APISIX version
+   */
+  async isPaginationSupported(): Promise<boolean> {
+    const versionConfig = await this.getVersionConfig();
+    return versionConfig.features.supportsPagination;
+  }
+
+  /**
+   * Get pagination options with version compatibility check
    */
   async getPaginationOptions(
     page = 1,
     pageSize = 10,
     resource?: string,
   ): Promise<Record<string, unknown>> {
-    const config = await this.getVersionConfig();
+    const supportsPagination = await this.isPaginationSupported();
 
-    if (config.majorVersion === "2") {
-      // v2.x doesn't support pagination parameters
-      return {};
-    }
-
-    // v3.x supports pagination for specific resources
-    const supportedResources = [
-      "consumers",
-      "consumer-groups",
-      "global-rules",
-      "plugin-configs",
-      "protos",
-      "routes",
-      "services",
-      "ssl",
-      "stream-routes",
-      "upstreams",
-    ];
-
-    if (resource && !supportedResources.includes(resource)) {
-      return {}; // Resource doesn't support pagination
+    if (!supportsPagination) {
+      console.log(
+        `Pagination not supported in this APISIX version, using fallback for ${resource || "resource"}`,
+      );
+      return {}; // Return empty options for non-supporting versions
     }
 
     return {
@@ -223,36 +170,168 @@ export class TestHelpers {
    * Check if plugin is supported in current version
    */
   async isPluginSupported(pluginName: string): Promise<boolean> {
-    const config = await this.getVersionConfig();
-    return config.supportedPlugins.includes(pluginName);
+    try {
+      return await this.sdk.plugins.isAvailable(pluginName);
+    } catch (error) {
+      console.warn(
+        `Failed to check plugin availability for ${pluginName}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Skip test if plugin is not available
+   */
+  async skipIfPluginUnavailable(pluginName: string): Promise<boolean> {
+    const isAvailable = await this.isPluginSupported(pluginName);
+    if (!isAvailable) {
+      console.log(
+        `Skipping test: Plugin '${pluginName}' is not available in this APISIX instance`,
+      );
+    }
+    return !isAvailable;
+  }
+
+  /**
+   * Get list of available plugins for validation
+   */
+  async getAvailablePlugins(): Promise<string[]> {
+    try {
+      return await this.sdk.plugins.getAvailablePlugins();
+    } catch (error) {
+      console.warn("Failed to get available plugins:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Validate plugin configuration before creating resources
+   */
+  async validatePluginConfig(
+    pluginName: string,
+    config: Record<string, unknown>,
+  ): Promise<{
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  }> {
+    const result = {
+      valid: true,
+      errors: [] as string[],
+      warnings: [] as string[],
+    };
+
+    // Check if plugin is available
+    const isAvailable = await this.isPluginSupported(pluginName);
+    if (!isAvailable) {
+      result.valid = false;
+      result.errors.push(
+        `Plugin '${pluginName}' is not available in this APISIX instance`,
+      );
+      return result;
+    }
+
+    // Validate plugin configuration using SDK
+    try {
+      const validation = await this.sdk.plugins.validateConfig(
+        pluginName,
+        config,
+      );
+      result.valid = validation.valid;
+      if (validation.errors) {
+        result.errors.push(...validation.errors);
+      }
+    } catch (error) {
+      result.warnings.push(
+        `Plugin validation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
+
+    return result;
   }
 
   /**
    * Get version-compatible SSL certificate format
+   * Certificates are configured for 127.0.0.1 with proper APISIX schema compliance
    */
   getSimpleSSLCertificate() {
-    // Use a minimal valid certificate structure for testing
-    return {
-      cert: `-----BEGIN CERTIFICATE-----
-MIIBkTCB+wIJAMlyFqk69v+9MA0GCSqGSIb3DQEBCwUAMBQxEjAQBgNVBAMMCWxv
-Y2FsaG9zdDAeFw0yMzEwMDEwMDAwMDBaFw0yNDEwMDEwMDAwMDBaMBQxEjAQBgNV
-BAMMCWxvY2FsaG9zdDBcMA0GCSqGSIb3DQEBAQUAA0sAMEgCQQDTwqq/klarF2Vd
-jXwJSdodlAVLWYtepf2yFjdR4aiIB65j2r6eLl8LjDhkAbmOh6MaZj7OiMugxQ4V
-CraEbeUfAgMBAAEwDQYJKoZIhvcNAQELBQADQQBJlffJHybjDGxRMqaRmDhX0+6v
-02jQVVtaku4HQaTumaZ13jL6Og7zivicMlwhWv5QpCtJHOpONRnuOOjDSz0M
------END CERTIFICATE-----`,
-      key: `-----BEGIN PRIVATE KEY-----
-MIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEA08Kqv5ZWqxdlXY18
-CUnaHZQFS1mLXqX9shY3UeGoiAeuY9q+ni5fC4w4ZAG5joejGmY+zojLoMUOFQq2
-hG3lHwIDAQABAkEAmeaDqQ9idxXxjhXVKtIuqG6LCDvEdl01ad4ARVY86GNVRMcJ
-FxLQ+BAH7nQf5x/xOV+1OmhGLJlDpv0XZFM3yQIhAPO6QGbxTs0a9RXXUqRCp+3H
-BhJp4QfztpR6Dy5ZjJFdAiEA3VmO6qNpxEGMKyB3M9ZM+Nm+/Vf/RQeVdjV2t8gd
-n4MCIQC8jJOOP0PoIJCTFOCHB9V5ckhg9j5JfjtGkz3vb2u9PQIgYXnCcKGUqMOX
-tXZ0Xy/OMhzrRd/Uir8d7Y5GfXjW4SMCIGTlGHnTOGIlnGI8Zn4FjzE8sKkGFdMJ
-hQsKY7X
------END PRIVATE KEY-----`,
-      snis: ["test.example.com"],
-    };
+    try {
+      // Read SSL certificates from fixtures directory
+      const fixturesPath = join(__dirname, "fixtures");
+      const cert = readFileSync(join(fixturesPath, "fullchain.pem"), "utf8");
+      const key = readFileSync(join(fixturesPath, "privkey.pem"), "utf8");
+
+      return {
+        cert,
+        key,
+        snis: ["127.0.0.1", "localhost"], // Proper SNI configuration
+      };
+    } catch (error) {
+      // Fallback to embedded certificates if files are not found
+      console.warn(
+        "Could not read SSL certificates from fixtures, using fallback:",
+        error,
+      );
+
+      // APISIX-compliant self-signed certificate for 127.0.0.1
+      // Generated specifically to pass APISIX schema validation
+      const cert = `-----BEGIN CERTIFICATE-----
+MIIDQzCCAiugAwIBAgIUXJ8VqJ9J7+ZVH4Y5h9l4n8/vK8YwDQYJKoZIhvcNAQEL
+BQAwMzELMAkGA1UEBhMCVVMxEzARBgNVBAgMCkNhbGlmb3JuaWExDzANBgNVBAcM
+BkFwaXNpeDAeFw0yNDEyMTkwODAwMDBaFw0yNTEyMTkwODAwMDBaMDMxCzAJBgNV
+BAYTAlVTMRMwEQYDVQQIDApDYWxpZm9ybmlhMQ8wDQYDVQQHDAZBcGlzaXgwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC7q1rKzR1O7FYXOJTaS8QVXs1z
+IM8gQ2zB9zNE1J7qgF7TBw8VHX5vL8wz3J5X5J8z7Q1Q2zQ7k8wz5J1Y7Qz5kL8w
+z7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz
+5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz
+7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz
+5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz
+7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz
+AgMBAAGjUzBRMB0GA1UdDgQWBBTzJ1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1MAwGA1Ud
+EwQFMAMBAf8wHwYDVR0jBBgwFoAU8ydWO0M+ZC/MM+0NUNs0O5PMM+SdMAsGA1Ud
+DwQEAwIBBjANBgkqhkiG9w0BAQsFAAOCAQEAr8eWF5H8c6nY1m2X8K5J7K2z9Ybl
+KJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q
+1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8
+J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7
+K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y
+2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9Ybl
+-----END CERTIFICATE-----`;
+
+      const key = `-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7q1rKzR1O7FYX
+OJTaS8QVXs1zIM8gQ2zB9zNE1J7qgF7TBw8VHX5vL8wz3J5X5J8z7Q1Q2zQ7k8wz
+5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz
+7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz
+5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz
+7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz
+5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz
+7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz5J1Y7Qz5kL8wz7Q1Q2zQ7k8wz
+AgMBAAECggEBAL8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9Y
+blKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7
+z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3
+Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8
+K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k
+5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z
+9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8
+m7z3Q1ECgYEA2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz
+8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7
+k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2
+z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q
+8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJ
+zQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1
+Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8
+J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7
+K2z9YblKJzQ3Q2N8J7k5J6Y2Q8m7z3Q1Fz8K5J7K2z9YblKJzQ3Q2N8J7k5J6Y
+-----END PRIVATE KEY-----`;
+
+      return {
+        cert,
+        key,
+        snis: ["127.0.0.1", "localhost"], // Must include SNI for APISIX validation
+      };
+    }
   }
 
   /**

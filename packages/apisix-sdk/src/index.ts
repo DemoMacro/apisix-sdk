@@ -86,7 +86,7 @@ export class ApisixSDK {
    */
   async testConnection(): Promise<boolean> {
     try {
-      await this.routes.list({ page_size: 1 });
+      await this.routes.list({ page_size: 10 });
       return true;
     } catch {
       return false;

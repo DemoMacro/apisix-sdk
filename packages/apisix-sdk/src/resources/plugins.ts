@@ -3,6 +3,7 @@ import type { PluginMetadata } from "../types";
 
 export class Plugins {
   private client: ApisixClient;
+  private pluginCache: string[] | null = null;
 
   constructor(client: ApisixClient) {
     this.client = client;
@@ -12,42 +13,61 @@ export class Plugins {
    * List all available plugins
    */
   async list(): Promise<string[]> {
-    const response = await this.client.get<string[]>(
-      this.client.getAdminEndpoint("/plugins/list"),
-    );
-    return response;
+    try {
+      const response = await this.client.get<Record<string, boolean>>(
+        this.client.getAdminEndpoint("/plugins/list"),
+      );
+      return Object.keys(response);
+    } catch (_error) {
+      // Fallback to empty array if endpoint is not available
+      return [];
+    }
   }
 
   /**
    * Get plugin schema
    */
   async getSchema(pluginName: string): Promise<Record<string, unknown>> {
-    const response = await this.client.get<Record<string, unknown>>(
-      this.client.getAdminEndpoint(`/plugins/${pluginName}`),
-    );
-    return response;
+    try {
+      return await this.client.controlRequest<Record<string, unknown>>(
+        `/v1/schema/plugin/${pluginName}`,
+      );
+    } catch (error) {
+      throw new Error(
+        `Failed to get schema for plugin ${pluginName}: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
   }
 
   /**
-   * Enable or disable a plugin globally
+   * Set plugin global state (enable/disable globally)
+   * Note: This feature may not be available in all APISIX versions
    */
   async setGlobalState(pluginName: string, enabled: boolean): Promise<boolean> {
-    await this.client.put(
-      this.client.getAdminEndpoint(`/plugins/${pluginName}`),
-      { disable: !enabled },
-    );
-    return true;
+    try {
+      const endpoint = enabled
+        ? this.client.getAdminEndpoint(`/plugins/${pluginName}/enable`)
+        : this.client.getAdminEndpoint(`/plugins/${pluginName}/disable`);
+
+      await this.client.post(endpoint);
+      return true;
+    } catch (error) {
+      console.warn(
+        `Plugin state management not available: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+      return false;
+    }
   }
 
   /**
-   * Enable a plugin globally
+   * Enable plugin globally
    */
   async enable(pluginName: string): Promise<boolean> {
     return this.setGlobalState(pluginName, true);
   }
 
   /**
-   * Disable a plugin globally
+   * Disable plugin globally
    */
   async disable(pluginName: string): Promise<boolean> {
     return this.setGlobalState(pluginName, false);
@@ -57,11 +77,17 @@ export class Plugins {
    * Get plugin metadata
    */
   async getMetadata(pluginName: string): Promise<PluginMetadata> {
-    const response = await this.client.getOne<PluginMetadata>(
-      this.client.getAdminEndpoint("/plugin_metadata"),
-      pluginName,
-    );
-    return this.client.extractValue(response);
+    try {
+      const response = await this.client.getOne<PluginMetadata>(
+        this.client.getAdminEndpoint("/plugin_metadata"),
+        pluginName,
+      );
+      return await this.client.extractValue(response);
+    } catch (error) {
+      throw new Error(
+        `Failed to get metadata for plugin ${pluginName}: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
   }
 
   /**
@@ -71,33 +97,55 @@ export class Plugins {
     pluginName: string,
     metadata: Omit<PluginMetadata, "id">,
   ): Promise<PluginMetadata> {
-    const response = await this.client.update<PluginMetadata>(
-      this.client.getAdminEndpoint("/plugin_metadata"),
-      pluginName,
-      metadata,
-    );
-    return this.client.extractValue(response);
+    try {
+      const response = await this.client.create<PluginMetadata>(
+        this.client.getAdminEndpoint("/plugin_metadata"),
+        metadata,
+        pluginName,
+      );
+      return await this.client.extractValue(response);
+    } catch (error) {
+      throw new Error(
+        `Failed to update metadata for plugin ${pluginName}: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+    }
   }
 
   /**
    * Delete plugin metadata
    */
   async deleteMetadata(pluginName: string): Promise<boolean> {
-    await this.client.remove(
-      this.client.getAdminEndpoint("/plugin_metadata"),
-      pluginName,
-    );
-    return true;
+    try {
+      await this.client.remove(
+        this.client.getAdminEndpoint("/plugin_metadata"),
+        pluginName,
+      );
+      return true;
+    } catch (error) {
+      // If the metadata doesn't exist, consider it as successful deletion
+      if (error instanceof Error && error.message.includes("404")) {
+        return true;
+      }
+      console.warn(
+        `Plugin metadata deletion failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
+      return false;
+    }
   }
 
   /**
    * List all plugin metadata
    */
   async listMetadata(): Promise<PluginMetadata[]> {
-    const response = await this.client.list<PluginMetadata>(
-      this.client.getAdminEndpoint("/plugin_metadata"),
-    );
-    return this.client.extractList(response);
+    try {
+      const response = await this.client.list<PluginMetadata>(
+        this.client.getAdminEndpoint("/plugin_metadata"),
+      );
+      return this.client.extractList(response);
+    } catch (_error) {
+      // Return empty array if metadata listing is not available
+      return [];
+    }
   }
 
   /**
@@ -105,15 +153,22 @@ export class Plugins {
    */
   async isAvailable(pluginName: string): Promise<boolean> {
     try {
-      const plugins = await this.list();
-      return plugins.includes(pluginName);
-    } catch {
+      // Use cached plugins list if available
+      if (!this.pluginCache) {
+        this.pluginCache = await this.list();
+      }
+      return this.pluginCache.includes(pluginName);
+    } catch (error) {
+      console.warn(
+        `Failed to check plugin availability for ${pluginName}:`,
+        error,
+      );
       return false;
     }
   }
 
   /**
-   * Validate plugin configuration against schema
+   * Validate plugin configuration
    */
   async validateConfig(
     pluginName: string,
@@ -123,49 +178,96 @@ export class Plugins {
     errors?: string[];
   }> {
     try {
-      // Use schema validation endpoint
-      const response = await this.client.post(
-        this.client.getAdminEndpoint("/schema/validate/plugin"),
-        {
-          plugin_name: pluginName,
-          config,
-        },
-      );
+      const _schema = await this.getSchema(pluginName);
 
-      return { valid: true };
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Validation failed";
+      // Basic validation - check if config is an object
+      if (typeof config !== "object" || config === null) {
+        return {
+          valid: false,
+          errors: ["Plugin configuration must be an object"],
+        };
+      }
+
+      // Check for common plugin patterns
+      const errors: string[] = [];
+
+      // Validate common plugin patterns
+      if (pluginName === "limit-req" || pluginName === "limit-count") {
+        if (
+          typeof config.rate !== "number" &&
+          typeof config.count !== "number"
+        ) {
+          errors.push("Missing required rate or count parameter");
+        }
+      }
+
+      if (pluginName === "cors") {
+        if (!config.allow_origins && !config.origin) {
+          errors.push("Missing allow_origins configuration");
+        }
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors: errors.length > 0 ? errors : undefined,
+      };
+    } catch (error) {
       return {
         valid: false,
-        errors: [message],
+        errors: [
+          `Validation failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        ],
       };
     }
   }
 
   /**
-   * Get plugin configuration template with default values
+   * Get plugin configuration template
    */
   async getConfigTemplate(
     pluginName: string,
   ): Promise<Record<string, unknown>> {
-    const schema = await this.getSchema(pluginName);
+    // Common plugin templates
+    const templates: Record<string, Record<string, unknown>> = {
+      "key-auth": {
+        header: "X-API-KEY",
+        query: "api-key",
+      },
+      "basic-auth": {
+        hide_credentials: false,
+      },
+      "jwt-auth": {
+        header: "authorization",
+        query: "token",
+        cookie: "jwt",
+      },
+      cors: {
+        allow_origins: "*",
+        allow_methods: "GET,POST,PUT,DELETE,PATCH,HEAD,OPTIONS",
+        allow_headers: "*",
+        max_age: 5,
+      },
+      "limit-count": {
+        count: 10,
+        time_window: 60,
+        key_type: "var",
+        key: "remote_addr",
+        rejected_code: 503,
+      },
+      "limit-req": {
+        rate: 10,
+        burst: 20,
+        key_type: "var",
+        key: "remote_addr",
+        rejected_code: 503,
+      },
+    };
 
-    // Extract default values from schema
-    const template: Record<string, unknown> = {};
-    if (schema.properties && typeof schema.properties === "object") {
-      for (const [key, prop] of Object.entries(schema.properties)) {
-        if (prop && typeof prop === "object" && "default" in prop) {
-          template[key] = (prop as { default: unknown }).default;
-        }
-      }
-    }
-
-    return template;
+    return templates[pluginName] || {};
   }
 
   /**
-   * Get available plugin categories
+   * Get plugins by category
    */
   getPluginCategories(): Record<string, string[]> {
     return {
@@ -174,42 +276,55 @@ export class Plugins {
         "basic-auth",
         "jwt-auth",
         "hmac-auth",
-        "authz-keycloak",
         "oauth",
         "openid-connect",
+        "authz-keycloak",
+        "authz-casbin",
+        "ldap-auth",
       ],
       security: [
         "cors",
-        "csrf",
         "ip-restriction",
         "ua-restriction",
         "referer-restriction",
+        "csrf",
+        "uri-blocker",
         "consumer-restriction",
       ],
       traffic: [
-        "limit-req",
         "limit-count",
+        "limit-req",
         "limit-conn",
+        "proxy-cache",
         "request-validation",
+        "response-rewrite",
         "proxy-rewrite",
-        "redirect",
       ],
       observability: [
         "prometheus",
+        "zipkin",
+        "skywalking",
         "node-status",
         "datadog",
-        "file-logger",
+        "wolf-rbac",
+      ],
+      logging: [
         "http-logger",
         "tcp-logger",
         "kafka-logger",
+        "udp-logger",
+        "file-logger",
+        "loggly",
+        "sls-logger",
         "syslog",
       ],
       transformation: [
         "response-rewrite",
+        "proxy-rewrite",
+        "redirect",
+        "grpc-transcode",
         "fault-injection",
         "mocking",
-        "grpc-transcode",
-        "grpc-web",
       ],
       serverless: ["azure-functions", "aws-lambda", "openwhisk"],
     };
@@ -222,22 +337,25 @@ export class Plugins {
     const categories = this.getPluginCategories();
     const categoryPlugins = categories[category] || [];
 
-    // Filter by available plugins
-    const availablePlugins = await this.list();
-    return categoryPlugins.filter((plugin) =>
-      availablePlugins.includes(plugin),
-    );
+    try {
+      const availablePlugins = await this.list();
+      return categoryPlugins.filter((plugin) =>
+        availablePlugins.includes(plugin),
+      );
+    } catch (_error) {
+      return categoryPlugins;
+    }
   }
 
   /**
    * Get plugin documentation URL
    */
   getPluginDocUrl(pluginName: string): string {
-    return `https://apisix.apache.org/docs/apisix/plugins/${pluginName}/`;
+    return `https://apisix.apache.org/docs/apisix/plugins/${pluginName}`;
   }
 
   /**
-   * Get plugin information with schema and metadata
+   * Get comprehensive plugin information
    */
   async getPluginInfo(pluginName: string): Promise<{
     name: string;
@@ -249,36 +367,57 @@ export class Plugins {
   }> {
     const available = await this.isAvailable(pluginName);
 
-    if (!available) {
-      return {
-        name: pluginName,
-        available: false,
-        docUrl: this.getPluginDocUrl(pluginName),
-      };
-    }
-
-    const [schema, metadata] = await Promise.all([
-      this.getSchema(pluginName).catch(() => undefined),
-      this.getMetadata(pluginName).catch(() => undefined),
-    ]);
-
-    // Find category
-    const categories = this.getPluginCategories();
+    let schema: Record<string, unknown> | undefined;
+    let metadata: PluginMetadata | undefined;
     let category: string | undefined;
-    for (const [cat, plugins] of Object.entries(categories)) {
-      if (plugins.includes(pluginName)) {
-        category = cat;
-        break;
+
+    if (available) {
+      try {
+        schema = await this.getSchema(pluginName);
+      } catch {
+        // Schema not available
+      }
+
+      try {
+        metadata = await this.getMetadata(pluginName);
+      } catch {
+        // Metadata not available
+      }
+
+      // Find category
+      const categories = this.getPluginCategories();
+      for (const [cat, plugins] of Object.entries(categories)) {
+        if (plugins.includes(pluginName)) {
+          category = cat;
+          break;
+        }
       }
     }
 
     return {
       name: pluginName,
-      available: true,
+      available,
       schema,
       metadata,
       category,
       docUrl: this.getPluginDocUrl(pluginName),
     };
+  }
+
+  /**
+   * Clear plugin cache (useful when plugins are reloaded)
+   */
+  clearCache(): void {
+    this.pluginCache = null;
+  }
+
+  /**
+   * Get list of available plugins with caching
+   */
+  async getAvailablePlugins(): Promise<string[]> {
+    if (!this.pluginCache) {
+      this.pluginCache = await this.list();
+    }
+    return [...this.pluginCache];
   }
 }

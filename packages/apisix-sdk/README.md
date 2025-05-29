@@ -40,9 +40,11 @@ import { ApisixSDK } from "apisix-sdk";
 
 // Initialize the SDK
 const client = new ApisixSDK({
-  baseURL: "http://127.0.0.1:9180",
-  apiKey: "your-api-key",
-  timeout: 30000,
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180",
+    apiKey: "your-api-key",
+    timeout: 30000,
+  },
 });
 
 // Test connection
@@ -69,12 +71,81 @@ console.log("Route created:", route.id);
 
 ```typescript
 interface ApisixSDKConfig {
-  baseURL: string; // APISIX Admin API base URL
-  apiKey?: string; // API key for authentication
-  timeout?: number; // Request timeout in milliseconds (default: 30000)
-  headers?: Record<string, string>; // Additional headers
+  adminAPI: {
+    baseURL: string; // APISIX Admin API base URL (default: http://127.0.0.1:9180)
+    apiKey?: string; // API key for authentication (Admin API only)
+    timeout?: number; // Request timeout in milliseconds (default: 30000)
+    headers?: Record<string, string>; // Additional headers for Admin API
+  };
+  controlAPI?: {
+    baseURL: string; // Control API base URL (default: http://127.0.0.1:9090)
+    timeout?: number; // Control API specific timeout
+    headers?: Record<string, string>; // Additional headers for Control API
+  };
 }
 ```
+
+### Basic Usage
+
+```typescript
+import { ApisixSDK } from "apisix-sdk";
+
+// Simple configuration (using default Control API endpoint)
+const client = new ApisixSDK({
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180", // Admin API
+    apiKey: "your-api-key",
+  },
+});
+
+// Advanced configuration with separate Control API endpoint
+const client = new ApisixSDK({
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180", // Admin API
+    apiKey: "your-api-key",
+    timeout: 30000,
+  },
+  controlAPI: {
+    baseURL: "http://127.0.0.1:9090", // Control API
+    timeout: 15000, // Separate timeout for Control API
+  },
+});
+```
+
+### Prerequisites
+
+#### Stream Routes Support
+
+To use Stream Routes functionality, enable stream proxy in your APISIX configuration (`config.yaml`):
+
+```yaml
+apisix:
+  proxy_mode: http&stream # Enable both HTTP and Stream proxies
+  stream_proxy:
+    tcp:
+      - 9100 # TCP proxy listening port
+    udp:
+      - 9200 # UDP proxy listening port
+```
+
+#### Control API Support
+
+To use Control API features, ensure the Control API is enabled in your APISIX configuration:
+
+```yaml
+apisix:
+  enable_control: true
+  control:
+    ip: "127.0.0.1"
+    port: 9090
+```
+
+**Important**: The Control API runs on a separate port (default: 9090) from the Admin API (default: 9180). The SDK automatically handles this separation:
+
+- **Admin API** (`http://127.0.0.1:9180`): Used for configuration management (routes, services, etc.)
+- **Control API** (`http://127.0.0.1:9090`): Used for monitoring, health checks, and runtime information
+
+**Control API does not require authentication** - it's designed for internal monitoring and should only be accessible from trusted networks.
 
 ## Documentation
 
@@ -82,7 +153,7 @@ For comprehensive API documentation and usage examples, please refer to:
 
 - **[Admin API Documentation](../../docs/en/admin-api.md)** - Complete guide to APISIX Admin API
 - **[Control API Documentation](../../docs/en/control-api.md)** - Control API for monitoring and management
-- **[Examples](../../playground/)** - Practical usage examples
+- **[Playground](../../playground/)** - Comprehensive test examples and usage patterns
 
 ## API Overview
 

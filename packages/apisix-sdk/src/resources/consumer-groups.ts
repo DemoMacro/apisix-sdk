@@ -121,6 +121,24 @@ export class ConsumerGroups {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allGroups = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedGroups = allGroups.slice(start, end);
+
+      return {
+        consumerGroups: paginatedGroups,
+        total: allGroups.length,
+        hasMore: end < allGroups.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -135,10 +153,12 @@ export class ConsumerGroups {
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
       consumerGroups: this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

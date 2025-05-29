@@ -121,6 +121,24 @@ export class GlobalRules {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allRules = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedRules = allRules.slice(start, end);
+
+      return {
+        globalRules: paginatedRules,
+        total: allRules.length,
+        hasMore: end < allRules.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -135,10 +153,12 @@ export class GlobalRules {
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
       globalRules: this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

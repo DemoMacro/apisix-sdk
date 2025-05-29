@@ -278,11 +278,11 @@ describe("APISIX SDK - Protos Management", () => {
         return;
       }
 
-      const result = await client.protos.listPaginated(1, 5);
+      const result = await client.protos.listPaginated(1, 10);
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.protos)).toBe(true);
-      expect(result.protos.length).toBeLessThanOrEqual(5);
+      expect(result.protos.length).toBeLessThanOrEqual(10);
     });
   });
 

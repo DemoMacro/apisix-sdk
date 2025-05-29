@@ -1,8 +1,8 @@
 import { loadConfig } from "c12";
 
 export interface ApisixConfig {
-  adminUrl: string;
-  controlUrl: string;
+  adminURL: string;
+  controlURL: string;
   apiKey: string;
   timeout: number;
   logLevel: "debug" | "info" | "warn" | "error";
@@ -28,8 +28,8 @@ export interface AppConfigOverrides {
 // Default configuration
 const defaults: AppConfig = {
   apisix: {
-    adminUrl: "http://127.0.0.1:9180",
-    controlUrl: "http://127.0.0.1:9090",
+    adminURL: "http://127.0.0.1:9180",
+    controlURL: "http://127.0.0.1:9090",
     apiKey: "",
     timeout: 30000,
     logLevel: "info",
@@ -60,14 +60,14 @@ export async function loadAppConfig(): Promise<AppConfig> {
   // Map environment variables to config structure
   _config = {
     apisix: {
-      adminUrl:
+      adminURL:
         process.env.APISIX_ADMIN_URL ||
-        config.apisix?.adminUrl ||
-        defaults.apisix.adminUrl,
-      controlUrl:
+        config.apisix?.adminURL ||
+        defaults.apisix.adminURL,
+      controlURL:
         process.env.APISIX_CONTROL_URL ||
-        config.apisix?.controlUrl ||
-        defaults.apisix.controlUrl,
+        config.apisix?.controlURL ||
+        defaults.apisix.controlURL,
       apiKey:
         process.env.APISIX_API_KEY ||
         config.apisix?.apiKey ||

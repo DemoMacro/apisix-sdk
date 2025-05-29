@@ -116,6 +116,24 @@ export class Upstreams {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allUpstreams = await this.list(filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedUpstreams = allUpstreams.slice(start, end);
+
+      return {
+        upstreams: paginatedUpstreams,
+        total: allUpstreams.length,
+        hasMore: end < allUpstreams.length,
+      };
+    }
+
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -130,10 +148,12 @@ export class Upstreams {
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
       upstreams: this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

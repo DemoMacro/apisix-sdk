@@ -126,6 +126,24 @@ export class Credentials {
     total?: number;
     hasMore?: boolean;
   }> {
+    // Check if pagination is supported in current version
+    const supportsPagination = await this.client.supportsPagination();
+
+    if (!supportsPagination) {
+      // Fallback: use regular list and simulate pagination
+      const allCredentials = await this.list(consumerId, filters);
+      const start = (page - 1) * pageSize;
+      const end = start + pageSize;
+      const paginatedCredentials = allCredentials.slice(start, end);
+
+      return {
+        credentials: paginatedCredentials,
+        total: allCredentials.length,
+        hasMore: end < allCredentials.length,
+      };
+    }
+
+    // Check version compatibility for credentials API
     const shouldSkip = await this.client.getApiVersionConfig();
     if (!shouldSkip.supportsNewResponseFormat) {
       // Skip pagination for older versions
@@ -137,6 +155,7 @@ export class Credentials {
       };
     }
 
+    // Use native pagination for v3+
     const options: ListOptions = {
       page,
       page_size: pageSize,
@@ -148,10 +167,12 @@ export class Credentials {
       options,
     );
 
+    const paginationInfo = this.client.extractPaginationInfo(response);
+
     return {
-      credentials: await this.client.extractList(response),
-      total: response.total,
-      hasMore: response.has_more,
+      credentials: this.client.extractList(response),
+      total: paginationInfo.total,
+      hasMore: paginationInfo.hasMore,
     };
   }
 

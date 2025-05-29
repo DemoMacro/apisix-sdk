@@ -1,5 +1,5 @@
 import type { ApisixClient } from "../client";
-import type { ApisixResponse, Plugin, PluginConfig } from "../types";
+import type { PluginConfig } from "../types";
 
 export class PluginConfigs {
   private client: ApisixClient;
@@ -350,7 +350,7 @@ export class PluginConfigs {
       const config = JSON.parse(jsonString) as PluginConfig;
       const { id, create_time, update_time, ...data } = config;
       return this.create(data, newId || id);
-    } catch (error) {
+    } catch (_error) {
       throw new Error("Invalid JSON format for plugin config");
     }
   }

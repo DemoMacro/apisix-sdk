@@ -43,9 +43,11 @@ Apache APISIX 管理 API 提供了 RESTful 端点，用于管理 API 网关配�
 import { ApisixSDK } from "apisix-sdk";
 
 const client = new ApisixSDK({
-  baseURL: "http://127.0.0.1:9180",
-  apiKey: "edd1c9f034335f136f87ad84b625c8f1", // 生产环境中请更改！
-  timeout: 30000,
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180",
+    apiKey: "your-api-key",
+    timeout: 30000,
+  },
 });
 ```
 
@@ -55,19 +57,32 @@ const client = new ApisixSDK({
 
 ```typescript
 interface ApisixSDKConfig {
-  baseURL: string; // APISIX 管理 API 基础 URL
-  apiKey?: string; // API Key 用于认证
-  timeout?: number; // 请求超时时间（毫秒，默认值：30000）
-  headers?: Record<string, string>; // 额外的头信息
+  adminAPI: {
+    baseURL: string; // APISIX Admin API 基础 URL
+    apiKey?: string; // API 密钥
+    timeout?: number; // 请求超时时间
+    headers?: Record<string, string>; // 额外请求头
+  };
+  controlAPI?: {
+    baseURL: string; // Control API 基础 URL
+    timeout?: number; // 超时时间
+    headers?: Record<string, string>; // 额外请求头
+  };
 }
 ```
 
-### 环境变量
+### 环境变量配置
 
 ```typescript
 const client = new ApisixSDK({
-  baseURL: process.env.APISIX_BASE_URL || "http://127.0.0.1:9180",
-  apiKey: process.env.APISIX_API_KEY,
+  adminAPI: {
+    baseURL: process.env.APISIX_ADMIN_URL || "http://127.0.0.1:9180",
+    apiKey: process.env.APISIX_API_KEY,
+    timeout: Number(process.env.APISIX_TIMEOUT) || 30000,
+  },
+  controlAPI: {
+    baseURL: process.env.APISIX_CONTROL_URL || "http://127.0.0.1:9090",
+  },
 });
 ```
 

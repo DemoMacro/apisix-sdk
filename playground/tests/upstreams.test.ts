@@ -269,11 +269,11 @@ describe("APISIX SDK - Upstreams Management", () => {
         return;
       }
 
-      const result = await client.upstreams.listPaginated(1, 5);
+      const result = await client.upstreams.listPaginated(1, 10);
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.upstreams)).toBe(true);
-      expect(result.upstreams.length).toBeLessThanOrEqual(5);
+      expect(result.upstreams.length).toBeLessThanOrEqual(10);
     });
   });
 

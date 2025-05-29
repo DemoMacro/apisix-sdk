@@ -9,18 +9,25 @@ import type {
 } from "./types";
 
 export class ApisixClient {
-  private baseURL: string;
+  private adminBaseURL: string;
+  private controlBaseURL: string;
   private apiKey?: string;
-  private timeout: number;
-  private headers: Record<string, string>;
+  private adminTimeout: number;
+  private controlTimeout: number;
+  private adminHeaders: Record<string, string>;
+  private controlHeaders: Record<string, string>;
   private _serverInfo?: ServerInfo;
   private _apiVersion?: string;
 
   constructor(config: ApisixSDKConfig) {
-    this.baseURL = config.baseURL.replace(/\/$/, ""); // Remove trailing slash
-    this.apiKey = config.apiKey;
-    this.timeout = config.timeout || 30000;
-    this.headers = config.headers || {};
+    this.adminBaseURL = config.adminAPI.baseURL.replace(/\/$/, ""); // Remove trailing slash
+    this.controlBaseURL =
+      config.controlAPI?.baseURL?.replace(/\/$/, "") || "http://127.0.0.1:9090";
+    this.apiKey = config.adminAPI.apiKey;
+    this.adminTimeout = config.adminAPI.timeout || 30000;
+    this.controlTimeout = config.controlAPI?.timeout || this.adminTimeout;
+    this.adminHeaders = config.adminAPI.headers || {};
+    this.controlHeaders = config.controlAPI?.headers || {};
   }
 
   /**
@@ -33,9 +40,13 @@ export class ApisixClient {
           this.getControlEndpoint("/v1/server_info"),
         );
       } catch (error) {
-        // Fallback: try to get version from server header
+        console.warn("Failed to get server info from Control API:", error);
+        // Fallback: try to get version from admin API
         try {
-          const response = await this.request<string>("/", { method: "HEAD" });
+          const _response = await this.request<string>("/", { method: "HEAD" });
+          console.warn(
+            "Fallback: using HEAD request, could not get real version",
+          );
           this._serverInfo = {
             hostname: "unknown",
             version: "unknown",
@@ -45,6 +56,7 @@ export class ApisixClient {
             etcd_version: "unknown",
           };
         } catch {
+          console.warn("All version detection methods failed, assuming v3.0.0");
           // If all fails, assume default
           this._serverInfo = {
             hostname: "unknown",
@@ -114,6 +126,7 @@ export class ApisixClient {
     supportsSecrets: boolean;
     supportsNewResponseFormat: boolean;
     supportsStreamRoutes: boolean;
+    supportsPagination: boolean;
   }> {
     const version = await this.getVersion();
     const isV3Plus = await this.isVersion3OrLater();
@@ -123,6 +136,7 @@ export class ApisixClient {
       supportsSecrets: isV3Plus,
       supportsNewResponseFormat: isV3Plus,
       supportsStreamRoutes: this.compareVersions(version, "2.10.0") >= 0,
+      supportsPagination: isV3Plus, // Pagination support added in APISIX 3.0
     };
   }
 
@@ -138,14 +152,28 @@ export class ApisixClient {
       params?: Record<string, string | number | boolean | string[] | undefined>;
     } = {},
   ): Promise<T> {
-    const url = `${this.baseURL}${endpoint}`;
+    // Determine if this is a Control API call based on endpoint
+    const isControlAPI =
+      endpoint.startsWith("http://") ||
+      endpoint.startsWith("https://") ||
+      (!endpoint.startsWith("/apisix/admin") &&
+        (endpoint.startsWith("/v1/") ||
+          endpoint.includes("server_info") ||
+          endpoint.includes("healthcheck") ||
+          endpoint.includes("discovery")));
+
+    const baseUrl = isControlAPI ? this.controlBaseURL : this.adminBaseURL;
+    const timeout = isControlAPI ? this.controlTimeout : this.adminTimeout;
+    const baseHeaders = isControlAPI ? this.controlHeaders : this.adminHeaders;
+
+    const url = `${baseUrl}${endpoint}`;
 
     const requestConfig = {
-      timeout: this.timeout,
+      timeout,
       headers: {
         "Content-Type": "application/json",
-        ...this.headers,
-        ...(this.apiKey && { "X-API-KEY": this.apiKey }),
+        ...baseHeaders,
+        ...(!isControlAPI && this.apiKey && { "X-API-KEY": this.apiKey }),
         ...options.headers,
       },
       method: options.method || "GET",
@@ -172,7 +200,9 @@ export class ApisixClient {
 
       // Handle network and other errors
       const message = error instanceof Error ? error.message : "Unknown error";
-      throw new Error(`Request failed: ${message}`);
+      throw new Error(
+        `Request failed: [${options.method || "GET"}] "${url}": ${message}`,
+      );
     }
   }
 
@@ -238,12 +268,31 @@ export class ApisixClient {
   }
 
   /**
+   * Check if current APISIX version supports pagination
+   */
+  public async supportsPagination(): Promise<boolean> {
+    const config = await this.getApiVersionConfig();
+    return config.supportsPagination;
+  }
+
+  /**
    * List resources with optional pagination and filtering
+   * Automatically handles version compatibility
    */
   public async list<T>(
     endpoint: string,
     options?: ListOptions,
   ): Promise<ApisixListResponse<T>> {
+    // If pagination parameters are provided, check if supported
+    if (options && (options.page || options.page_size)) {
+      const supportsPag = await this.supportsPagination();
+      if (!supportsPag) {
+        // Remove pagination parameters for non-supporting versions
+        const { page, page_size, ...nonPaginationOptions } = options;
+        return this.get<ApisixListResponse<T>>(endpoint, nonPaginationOptions);
+      }
+    }
+
     return this.get<ApisixListResponse<T>>(endpoint, options);
   }
 
@@ -359,55 +408,105 @@ export class ApisixClient {
   }
 
   /**
-   * Extract list from APISIX list response format (version-aware)
+   * Extract list data from response, handling both v2.x and v3.x formats
    */
-  public async extractList<T>(response: ApisixListResponse<T>): Promise<T[]> {
-    const isV3 = await this.isVersion3OrLater();
+  extractList<T>(response: unknown): T[] {
+    if (!response || typeof response !== "object") {
+      return [];
+    }
 
-    if (!isV3 && response.node?.nodes) {
-      // Legacy format (v2.x)
-      return response.node.nodes.map((item) => {
-        const value = item.value;
-        const key = item.key;
+    const resp = response as Record<string, unknown>;
 
-        // Extract ID from key if value doesn't have ID
-        if (
-          key &&
-          typeof value === "object" &&
-          value !== null &&
-          !("id" in value)
-        ) {
-          const idMatch = key.match(/\/([^\/]+)$/);
-          if (idMatch) {
-            return { ...value, id: idMatch[1] } as T;
-          }
+    // Handle v3.x format with list array
+    if (resp.list && Array.isArray(resp.list)) {
+      return resp.list.map((item: unknown) => {
+        if (item && typeof item === "object" && "value" in item) {
+          return (item as { value: T }).value;
         }
-
-        return value;
+        return item as T;
       });
     }
-    // New format (v3.x)
-    return (
-      response.list?.map((item) => {
-        const value = item.value;
-        const key = item.key;
 
-        // Extract ID from key if value doesn't have ID
-        if (
-          key &&
-          typeof value === "object" &&
-          value !== null &&
-          !("id" in value)
-        ) {
-          const idMatch = key.match(/\/([^\/]+)$/);
-          if (idMatch) {
-            return { ...value, id: idMatch[1] } as T;
-          }
+    // Handle legacy v2.x format with node.nodes array
+    if (
+      resp.node &&
+      typeof resp.node === "object" &&
+      "nodes" in resp.node &&
+      Array.isArray((resp.node as { nodes: unknown[] }).nodes)
+    ) {
+      return (resp.node as { nodes: unknown[] }).nodes.map((item: unknown) => {
+        if (item && typeof item === "object" && "value" in item) {
+          return (item as { value: T }).value;
         }
+        return item as T;
+      });
+    }
 
-        return value;
-      }) || []
-    );
+    // Handle direct array response
+    if (Array.isArray(response)) {
+      return response as T[];
+    }
+
+    // Handle wrapped array response
+    if (resp.data && Array.isArray(resp.data)) {
+      return resp.data as T[];
+    }
+
+    // Handle single item wrapped in array
+    if (resp.value) {
+      return [resp.value as T];
+    }
+
+    // Fallback to empty array
+    return [];
+  }
+
+  /**
+   * Extract pagination info from response
+   */
+  extractPaginationInfo(response: unknown): {
+    total: number;
+    hasMore: boolean;
+  } {
+    if (!response || typeof response !== "object") {
+      return { total: 0, hasMore: false };
+    }
+
+    const resp = response as Record<string, unknown>;
+
+    // Handle v3.x format
+    if (typeof resp.total === "number") {
+      const data = this.extractList(resp);
+      return {
+        total: resp.total,
+        hasMore:
+          data.length > 0 && data.length >= (Number(resp.page_size) || 10),
+      };
+    }
+
+    // Handle legacy format
+    if (
+      resp.node &&
+      typeof resp.node === "object" &&
+      "nodes" in resp.node &&
+      Array.isArray((resp.node as { nodes: unknown[] }).nodes)
+    ) {
+      const total =
+        typeof resp.count === "number"
+          ? resp.count
+          : (resp.node as { nodes: unknown[] }).nodes.length;
+      return {
+        total,
+        hasMore: false, // Legacy format doesn't provide hasMore info
+      };
+    }
+
+    // Fallback
+    const data = this.extractList(resp);
+    return {
+      total: data.length,
+      hasMore: false,
+    };
   }
 
   /**
@@ -421,7 +520,22 @@ export class ApisixClient {
    * Get configuration for control API endpoints
    */
   public getControlEndpoint(path: string): string {
-    return `/apisix/admin${path}`;
+    return path;
+  }
+
+  /**
+   * Make Control API request (convenience method)
+   */
+  public async controlRequest<T>(
+    endpoint: string,
+    options: {
+      method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD";
+      headers?: Record<string, string>;
+      body?: Record<string, unknown> | string;
+      params?: Record<string, string | number | boolean | string[] | undefined>;
+    } = {},
+  ): Promise<T> {
+    return this.request<T>(endpoint, options);
   }
 
   /**
@@ -558,7 +672,7 @@ export class ApisixClient {
     if (typeof data === "string") {
       try {
         parsedData = JSON.parse(data);
-      } catch (error) {
+      } catch (_error) {
         throw new Error("Invalid JSON data provided");
       }
     } else {
@@ -656,7 +770,7 @@ export class ApisixClient {
     },
   ): Promise<string> {
     const response = await this.list<T>(endpoint);
-    const data = await this.extractList(response);
+    const data = this.extractList(response);
 
     let filteredData: unknown[] = data;
 
