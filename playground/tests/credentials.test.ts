@@ -236,53 +236,23 @@ describe("APISIX SDK - Credentials Management", () => {
 
     it("should partially update credential", async () => {
       await helpers.conditionalTest("credentials", async () => {
-        try {
-          const patched = await client.credentials.patch(
-            testConsumer.username,
-            testIds.keyAuthCred,
-            {
-              plugins: {
-                "key-auth": {
-                  key: "patched-api-key-789",
-                },
+        const patched = await client.credentials.patch(
+          testConsumer.username,
+          testIds.keyAuthCred,
+          {
+            plugins: {
+              "key-auth": {
+                key: "patched-api-key-789",
               },
             },
-          );
+          },
+        );
 
-          expect(patched.plugins?.["key-auth"]).toBeDefined();
-          expect((patched.plugins?.["key-auth"] as any).key).toBe(
-            "patched-api-key-789",
-          );
-        } catch (error) {
-          // PATCH method might not be supported for credentials
-          if (
-            error instanceof Error &&
-            error.message.includes("not supported `PATCH` method")
-          ) {
-            console.warn(
-              "PATCH method not supported for credentials, using PUT instead",
-            );
-            // Use update instead of patch
-            const updated = await client.credentials.update(
-              testConsumer.username,
-              testIds.keyAuthCred,
-              {
-                plugins: {
-                  "key-auth": {
-                    key: "patched-api-key-789",
-                  },
-                },
-              },
-            );
-            expect(updated.plugins?.["key-auth"]).toBeDefined();
-            expect((updated.plugins?.["key-auth"] as any).key).toBeTruthy();
-            expect(typeof (updated.plugins?.["key-auth"] as any).key).toBe(
-              "string",
-            );
-          } else {
-            throw error;
-          }
-        }
+        expect(patched.plugins?.["key-auth"]).toBeDefined();
+        // APISIX returns the original key value in GET responses
+        expect((patched.plugins?.["key-auth"] as any).key).toBe(
+          "patched-api-key-789",
+        );
       });
     });
   });

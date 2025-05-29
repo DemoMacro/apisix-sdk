@@ -77,10 +77,10 @@ interface ControlAPI {
 
 ### 健康检查
 
-监控 APISIX 的整体健康状态。
+使用增强的响应处理监控 APISIX 的整体健康状态。
 
 ```typescript
-// 基本健康检查
+// 改进错误处理的基本健康检查
 const health = await client.control.healthCheck();
 
 console.log("状态:", health.status); // "ok" | "error"
@@ -89,9 +89,15 @@ if (health.info) {
   console.log("主机名:", health.info.hostname);
   console.log("运行时间:", health.info.up_time);
 }
+
+// 带连接验证的高级健康检查
+const isHealthy = await client.control.isHealthy();
+console.log("APISIX 健康状态:", isHealthy);
 ```
 
 #### 健康检查响应
+
+SDK 处理各种 APISIX 健康检查响应格式：
 
 ```typescript
 interface HealthCheckStatus {
@@ -104,12 +110,33 @@ interface HealthCheckStatus {
 }
 ```
 
-### 上游健康
+**响应处理**：
 
-监控上游节点的健康状态。
+- **空响应**：某些 APISIX 版本对健康状态返回空字符串 - SDK 将其解释为健康
+- **JSON 响应**：带有状态和信息字段的标准 JSON 响应
+- **错误响应**：正确的错误状态检测和处理
 
 ```typescript
-// 获取上游健康状态
+// SDK 自动处理不同的响应格式：
+try {
+  const health = await client.control.healthCheck();
+
+  if (typeof health === "string" && health.trim() === "") {
+    console.log("APISIX 健康 (空响应)");
+  } else if (health.status === "ok") {
+    console.log("APISIX 健康 (JSON 响应)");
+  }
+} catch (error) {
+  console.error("健康检查失败:", error.message);
+}
+```
+
+### 上游健康
+
+使用智能处理各种场景监控上游节点的健康状态。
+
+```typescript
+// 自动错误处理的上游健康状态获取
 const upstreamHealth = await client.control.getUpstreamHealth();
 
 upstreamHealth.forEach((upstream) => {
@@ -124,6 +151,15 @@ upstreamHealth.forEach((upstream) => {
     console.log(`    超时失败: ${node.counter.timeout_failure}`);
   });
 });
+
+// 获取特定上游的健康状态
+const specificUpstreamHealth =
+  await client.control.getUpstreamHealth("my-upstream");
+
+// 检查是否配置了任何上游
+if (upstreamHealth.length === 0) {
+  console.log("未配置上游或健康检查端点不可用");
+}
 ```
 
 #### 上游健康响应
@@ -145,6 +181,28 @@ interface UpstreamHealthNode {
     timeout_failure: number;
     success: number;
   };
+}
+```
+
+**智能错误处理**：
+
+- **未配置上游**：优雅地返回空数组
+- **端点不可用**：适当处理 404 响应
+- **特定上游查询**：支持查询单个上游健康状态
+- **缺少上游 ID 错误**：提供有用的错误消息
+
+```typescript
+// SDK 处理各种上游健康场景：
+try {
+  const health = await client.control.getUpstreamHealth();
+
+  if (health.length === 0) {
+    console.log("未配置上游，这在测试环境中是正常的");
+  } else {
+    console.log(`正在监控 ${health.length} 个上游`);
+  }
+} catch (error) {
+  console.error("上游健康检查失败:", error.message);
 }
 ```
 

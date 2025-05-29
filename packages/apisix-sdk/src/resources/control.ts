@@ -17,13 +17,64 @@ export class Control {
   }
 
   /**
+   * Get runtime upstreams information
+   */
+  async getUpstreams(): Promise<Record<string, unknown>[]> {
+    return this.client.controlRequest<Record<string, unknown>[]>(
+      "/v1/upstreams",
+    );
+  }
+
+  /**
+   * Get specific upstream runtime information
+   */
+  async getUpstream(upstreamId: string): Promise<Record<string, unknown>> {
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/upstreams/${upstreamId}`,
+    );
+  }
+
+  /**
+   * Get all available schemas
+   */
+  async getSchemas(): Promise<SchemaInfo> {
+    return this.client.controlRequest<SchemaInfo>("/v1/schema");
+  }
+
+  /**
+   * Get schema for a specific resource type
+   */
+  async getSchema(resourceType: string): Promise<Record<string, unknown>> {
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/schema/${resourceType}`,
+    );
+  }
+
+  /**
+   * Get schema for a specific plugin
+   */
+  async getPluginSchema(pluginName: string): Promise<Record<string, unknown>> {
+    return this.client.controlRequest<Record<string, unknown>>(
+      `/v1/schema/plugin/${pluginName}`,
+    );
+  }
+
+  /**
    * Check if Control API is healthy
    */
   async isHealthy(): Promise<boolean> {
     try {
-      const response =
-        await this.client.controlRequest<HealthCheckStatus>("/v1/healthcheck");
-      return response.status === "ok";
+      const response = await this.client.controlRequest<
+        HealthCheckStatus | string
+      >("/v1/healthcheck");
+
+      // Handle both object response and empty string response
+      if (typeof response === "string") {
+        // Empty response means APISIX is healthy
+        return response.trim() === "";
+      }
+
+      return response?.status === "ok";
     } catch {
       return false;
     }
@@ -79,10 +130,30 @@ export class Control {
         );
         return [result];
       }
-      // Get all health check statuses (without specific upstream filter)
-      const result =
-        await this.client.controlRequest<UpstreamHealth[]>("/v1/healthcheck");
-      return result;
+
+      // Try to get all health check statuses, but handle the case where it's not available
+      try {
+        const result = await this.client.controlRequest<
+          UpstreamHealth[] | string
+        >("/v1/healthcheck");
+        // Handle empty response
+        if (!result || (typeof result === "string" && result.trim() === "")) {
+          return [];
+        }
+        return Array.isArray(result) ? result : [];
+      } catch (error: unknown) {
+        // If the endpoint returns 404 or requires specific upstream ID, return empty array
+        const errorMessage = error instanceof Error ? error.message : "";
+        const hasResponseStatus =
+          error && typeof error === "object" && "response" in error;
+        const errorStatus = hasResponseStatus
+          ? (error as { response?: { status?: number } }).response?.status
+          : undefined;
+        if (errorStatus === 404 || errorMessage.includes("missing src id")) {
+          return [];
+        }
+        throw error;
+      }
     } catch (error) {
       console.warn("Upstream health check not available:", error);
       return [];
@@ -90,62 +161,49 @@ export class Control {
   }
 
   /**
-   * Get services dump for service discovery
-   * Note: Requires service discovery to be configured (nacos, consul, eureka)
+   * Check if specific service discovery is available
    */
-  async getServiceDump(service = "nacos"): Promise<DiscoveryDump> {
+  async hasDiscovery(service: string): Promise<boolean> {
     try {
-      return await this.client.controlRequest<DiscoveryDump>(
+      await this.client.controlRequest<unknown>(
         `/v1/discovery/${service}/dump`,
       );
-    } catch (error) {
-      throw new Error(
-        `Service discovery '${service}' not configured or not available: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+      return true;
+    } catch {
+      return false;
     }
   }
 
   /**
-   * Get runtime upstreams information
+   * Get available service discovery types
    */
-  async getUpstreams(): Promise<Record<string, unknown>[]> {
-    return this.client.controlRequest<Record<string, unknown>[]>(
-      "/v1/upstreams",
-    );
+  async listDiscoveries(): Promise<string[]> {
+    const commonServices = ["nacos", "consul", "eureka"];
+    const available: string[] = [];
+
+    for (const service of commonServices) {
+      if (await this.hasDiscovery(service)) {
+        available.push(service);
+      }
+    }
+
+    return available;
   }
 
   /**
-   * Get specific upstream runtime information
+   * Get services dump for service discovery
+   * Note: Requires service discovery to be configured
    */
-  async getUpstream(upstreamId: string): Promise<Record<string, unknown>> {
-    return this.client.controlRequest<Record<string, unknown>>(
-      `/v1/upstreams/${upstreamId}`,
-    );
-  }
+  async getDiscoveryDump(service = "nacos"): Promise<unknown> {
+    // Check if service discovery is available first
+    const isAvailable = await this.hasDiscovery(service);
+    if (!isAvailable) {
+      throw new Error(
+        `Service discovery '${service}' is not configured or not available in this APISIX instance`,
+      );
+    }
 
-  /**
-   * Get all available schemas
-   */
-  async getSchemas(): Promise<SchemaInfo> {
-    return this.client.controlRequest<SchemaInfo>("/v1/schema");
-  }
-
-  /**
-   * Get schema for a specific resource type
-   */
-  async getSchema(resourceType: string): Promise<Record<string, unknown>> {
-    return this.client.controlRequest<Record<string, unknown>>(
-      `/v1/schema/${resourceType}`,
-    );
-  }
-
-  /**
-   * Get schema for a specific plugin
-   */
-  async getPluginSchema(pluginName: string): Promise<Record<string, unknown>> {
-    return this.client.controlRequest<Record<string, unknown>>(
-      `/v1/schema/plugin/${pluginName}`,
-    );
+    return this.client.controlRequest<unknown>(`/v1/discovery/${service}/dump`);
   }
 
   /**
@@ -153,6 +211,14 @@ export class Control {
    * Note: Requires service discovery to be configured
    */
   async getDiscoveryDumpFiles(service = "nacos"): Promise<DiscoveryDumpFile[]> {
+    // Check if service discovery is available first
+    const isAvailable = await this.hasDiscovery(service);
+    if (!isAvailable) {
+      throw new Error(
+        `Service discovery '${service}' is not configured or not available in this APISIX instance`,
+      );
+    }
+
     try {
       return await this.client.controlRequest<DiscoveryDumpFile[]>(
         `/v1/discovery/${service}/dump_files`,
@@ -332,8 +398,8 @@ export class Control {
 
     let health = false;
     try {
-      const healthStatus = await this.healthCheck();
-      health = healthStatus.status === "ok";
+      // Use isHealthy instead of healthCheck for better compatibility
+      health = await this.isHealthy();
     } catch {
       // Health check not available
       health = false;
@@ -357,7 +423,7 @@ export class Control {
 
     // Try to get discovery services via service dump instead of non-existent metrics endpoint
     try {
-      const discoveryDump = await this.getServiceDump();
+      const discoveryDump = await this.getDiscoveryDump();
       (result as Record<string, unknown>).discoveryServices = discoveryDump;
     } catch {
       // Discovery services not available
@@ -413,7 +479,36 @@ export class Control {
    * Health check endpoint
    */
   async healthCheck(): Promise<HealthCheckStatus> {
-    return this.client.controlRequest<HealthCheckStatus>("/v1/healthcheck");
+    const response = await this.client.controlRequest<
+      HealthCheckStatus | string
+    >("/v1/healthcheck");
+
+    // Handle empty response from APISIX (means healthy)
+    if (typeof response === "string" && response.trim() === "") {
+      return {
+        status: "ok",
+        info: {
+          version: "unknown",
+          hostname: "unknown",
+          up_time: 0,
+        },
+      };
+    }
+
+    // Return the response if it's an object
+    if (typeof response === "object" && response !== null) {
+      return response as HealthCheckStatus;
+    }
+
+    // Fallback for unexpected response format
+    return {
+      status: "ok",
+      info: {
+        version: "unknown",
+        hostname: "unknown",
+        up_time: 0,
+      },
+    };
   }
 
   /**

@@ -77,10 +77,10 @@ interface ControlAPI {
 
 ### Health Check
 
-Monitor the overall health status of APISIX.
+Monitor the overall health status of APISIX with enhanced response handling.
 
 ```typescript
-// Basic health check
+// Basic health check with improved error handling
 const health = await client.control.healthCheck();
 
 console.log("Status:", health.status); // "ok" | "error"
@@ -89,9 +89,15 @@ if (health.info) {
   console.log("Hostname:", health.info.hostname);
   console.log("Uptime:", health.info.up_time);
 }
+
+// Advanced health check with connection validation
+const isHealthy = await client.control.isHealthy();
+console.log("APISIX is healthy:", isHealthy);
 ```
 
 #### Health Check Response
+
+The SDK handles various APISIX health check response formats:
 
 ```typescript
 interface HealthCheckStatus {
@@ -104,12 +110,33 @@ interface HealthCheckStatus {
 }
 ```
 
-### Upstream Health
+**Response Handling**:
 
-Monitor the health status of upstream nodes.
+- **Empty responses**: Some APISIX versions return empty strings for healthy status - the SDK interprets this as healthy
+- **JSON responses**: Standard JSON responses with status and info fields
+- **Error responses**: Proper error status detection and handling
 
 ```typescript
-// Get upstream health status
+// The SDK automatically handles different response formats:
+try {
+  const health = await client.control.healthCheck();
+
+  if (typeof health === "string" && health.trim() === "") {
+    console.log("APISIX is healthy (empty response)");
+  } else if (health.status === "ok") {
+    console.log("APISIX is healthy (JSON response)");
+  }
+} catch (error) {
+  console.error("Health check failed:", error.message);
+}
+```
+
+### Upstream Health
+
+Monitor the health status of upstream nodes with intelligent handling of various scenarios.
+
+```typescript
+// Get upstream health status with automatic error handling
 const upstreamHealth = await client.control.getUpstreamHealth();
 
 upstreamHealth.forEach((upstream) => {
@@ -124,6 +151,17 @@ upstreamHealth.forEach((upstream) => {
     console.log(`    Timeouts: ${node.counter.timeout_failure}`);
   });
 });
+
+// Get health status for specific upstream
+const specificUpstreamHealth =
+  await client.control.getUpstreamHealth("my-upstream");
+
+// Check if any upstreams are configured
+if (upstreamHealth.length === 0) {
+  console.log(
+    "No upstreams configured or health check endpoints not available",
+  );
+}
 ```
 
 #### Upstream Health Response
@@ -145,6 +183,28 @@ interface UpstreamHealthNode {
     timeout_failure: number;
     success: number;
   };
+}
+```
+
+**Intelligent Error Handling**:
+
+- **No upstreams configured**: Returns empty array gracefully
+- **Endpoint not available**: Handles 404 responses appropriately
+- **Specific upstream queries**: Supports querying individual upstream health
+- **Missing upstream ID errors**: Provides helpful error messages
+
+```typescript
+// The SDK handles various upstream health scenarios:
+try {
+  const health = await client.control.getUpstreamHealth();
+
+  if (health.length === 0) {
+    console.log("No upstreams configured, this is normal in test environments");
+  } else {
+    console.log(`Monitoring ${health.length} upstreams`);
+  }
+} catch (error) {
+  console.error("Upstream health check failed:", error.message);
 }
 ```
 

@@ -76,18 +76,53 @@ export class Credentials {
 
   /**
    * Partially update an existing credential
+   * Note: PATCH method is not supported for credentials in APISIX
+   * This method will fall back to using PUT method
    */
   async patch(
     consumerId: string,
     credentialId: string,
     credential: UpdateInput<Credential>,
   ): Promise<Credential> {
-    const response = await this.client.partialUpdate<Credential>(
-      this.client.getAdminEndpoint(`/consumers/${consumerId}/credentials`),
-      credentialId,
-      credential,
+    console.warn(
+      "PATCH method not supported for credentials, using PUT instead",
     );
-    return this.client.extractValue(response);
+
+    try {
+      // Get current credential first
+      const current = await this.get(consumerId, credentialId);
+
+      // Handle plugins merging properly
+      let mergedPlugins = current.plugins || {};
+      if (credential.plugins) {
+        mergedPlugins = {
+          ...mergedPlugins,
+          ...credential.plugins,
+        };
+      }
+
+      // Merge with current data for complete update
+      const mergedData = {
+        ...current,
+        ...credential,
+        plugins: mergedPlugins,
+      };
+
+      // Remove fields that shouldn't be in update request
+      const { id, create_time, update_time, ...updateData } = mergedData;
+
+      // Use PUT to update, then GET to return the correct format
+      // because PUT response returns Base64 encoded keys while GET returns original keys
+      await this.update(consumerId, credentialId, updateData);
+
+      // Return the updated credential with original key values
+      return this.get(consumerId, credentialId);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("not supported")) {
+        throw new Error("PATCH method is not supported for credentials");
+      }
+      throw error;
+    }
   }
 
   /**

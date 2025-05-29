@@ -417,7 +417,7 @@ const groupConsumers = await client.consumers.findByGroup("premium-users");
 
 ### SSL Certificates
 
-SSL certificates for HTTPS termination.
+SSL certificates for HTTPS termination with enhanced security handling.
 
 #### SSL Interface
 
@@ -462,6 +462,69 @@ const certs = await client.ssl.findBySNI("api.example.com");
 const expiration = await client.ssl.checkExpiration("ssl-id", 30);
 if (expiration.willExpireSoon) {
   console.log(`Certificate expires in ${expiration.daysRemaining} days`);
+}
+
+// Get expiring certificates
+const expiringCerts = await client.ssl.getExpiringCertificates(30);
+console.log(
+  `Found ${expiringCerts.length} certificates expiring within 30 days`,
+);
+
+// Clone SSL certificate (handles APISIX security behavior)
+// Note: APISIX doesn't return private keys in single GET requests for security
+// The clone method automatically retrieves keys from list responses when needed
+const clonedCert = await client.ssl.clone(
+  "source-cert-id",
+  {
+    snis: ["new-domain.example.com"],
+    // Optional: provide new key if you want to replace the original
+    // key: "-----BEGIN PRIVATE KEY-----\n...",
+  },
+  "new-cert-id",
+);
+
+// Alternative: Clone with explicit key replacement
+const clonedWithNewKey = await client.ssl.clone(
+  "source-cert-id",
+  {
+    snis: ["another-domain.example.com"],
+    key: "-----BEGIN PRIVATE KEY-----\n...", // New private key
+  },
+  "another-cert-id",
+);
+
+// Enable/disable certificates
+await client.ssl.enable("ssl-id");
+await client.ssl.disable("ssl-id");
+
+// Find by status
+const enabledCerts = await client.ssl.findByStatus(1);
+const disabledCerts = await client.ssl.findByStatus(0);
+```
+
+#### SSL Security Behavior
+
+**Important**: APISIX implements security measures regarding private key exposure:
+
+- **Single GET requests** (`/apisix/admin/ssls/{id}`) do not return the `key` field for security reasons
+- **List requests** (`/apisix/admin/ssls`) do include the `key` field in responses
+
+The SDK automatically handles this behavior:
+
+1. **Automatic Key Retrieval**: When cloning certificates, if the source certificate's key is not available from a single GET request, the SDK automatically retrieves it from the list endpoint
+2. **Graceful Fallback**: If automatic retrieval fails, you can provide a replacement key in the clone modifications
+3. **Clear Error Messages**: Informative error messages guide you when manual key provision is required
+
+```typescript
+// Example of automatic key retrieval (recommended approach)
+try {
+  const cloned = await client.ssl.clone("source-id", {
+    snis: ["new.example.com"],
+  });
+  console.log("Certificate cloned successfully with automatic key retrieval");
+} catch (error) {
+  console.error("Clone failed:", error.message);
+  // Error message will indicate if manual key provision is needed
 }
 ```
 

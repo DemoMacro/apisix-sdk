@@ -260,24 +260,118 @@ export class SSLCertificates {
     modifications?: Partial<SSL>,
     newId?: string,
   ): Promise<SSL> {
-    const source = await this.get(sourceId);
+    try {
+      // First, clean up any existing certificate with the target ID
+      if (newId) {
+        try {
+          await this.delete(newId);
+        } catch {
+          // Ignore if it doesn't exist
+        }
+      }
 
-    // Remove fields that shouldn't be copied
-    const {
-      id,
-      create_time,
-      update_time,
-      validity_start,
-      validity_end,
-      ...sslData
-    } = source;
+      let source: SSL;
 
-    // Apply modifications
-    const newSSL = {
-      ...sslData,
-      ...modifications,
-    };
+      try {
+        // Try to get the source certificate using direct GET first
+        source = await this.get(sourceId);
+      } catch (error) {
+        throw new Error(
+          `Failed to get source SSL certificate '${sourceId}': ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      }
 
-    return this.create(newSSL, newId);
+      // Check if we have the key field - APISIX may not return it in single resource GET for security reasons
+      let sourceKey = source.key;
+
+      if (!sourceKey) {
+        // This is normal APISIX behavior - single GET requests don't return private keys for security
+        // Try to get the key from the list response, which includes the key field
+        const allCerts = await this.list();
+        const sourceFromList = allCerts.find((cert) => cert.id === sourceId);
+
+        if (sourceFromList?.key) {
+          sourceKey = sourceFromList.key;
+          // Success - no need to log this as it's normal operation
+        } else {
+          console.warn(
+            `Could not retrieve private key for SSL certificate '${sourceId}' from APISIX API (this is expected APISIX security behavior)`,
+          );
+        }
+
+        // If we still don't have a key, check if modifications provide one
+        if (!sourceKey && !modifications?.key) {
+          throw new Error(
+            `Source SSL certificate '${sourceId}' is missing 'key' field and no replacement key provided in modifications. This is due to APISIX security policies that don't return private keys in single resource GET responses. Please provide a key in the modifications parameter.`,
+          );
+        }
+
+        // Use the key from modifications if we don't have the source key
+        if (!sourceKey && modifications?.key) {
+          sourceKey = modifications.key as string;
+        }
+      }
+
+      // Validate that source has required certificate fields
+      if (!source.cert) {
+        throw new Error(
+          `Source SSL certificate '${sourceId}' is missing 'cert' field`,
+        );
+      }
+
+      // Remove fields that shouldn't be copied or are auto-generated
+      const {
+        id,
+        create_time,
+        update_time,
+        validity_start,
+        validity_end,
+        ...sslData
+      } = source;
+
+      // Ensure we have the key field for the new certificate
+      sslData.key = sourceKey;
+
+      // Apply modifications with proper SNI handling
+      const newSSL = {
+        ...sslData,
+        ...modifications,
+      };
+
+      // Validate required fields after applying modifications
+      if (!newSSL.cert || !newSSL.key) {
+        throw new Error(
+          "SSL certificate must have both 'cert' and 'key' fields",
+        );
+      }
+
+      // Ensure SNI is properly formatted if provided
+      if (newSSL.snis) {
+        if (!Array.isArray(newSSL.snis)) {
+          throw new Error("SNI must be an array");
+        }
+        if (newSSL.snis.length === 0) {
+          throw new Error("SNI array cannot be empty");
+        }
+      }
+
+      return this.create(newSSL, newId);
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes("then clause did not match")) {
+          throw new Error(
+            `SSL certificate validation failed during clone: ${error.message}. This usually indicates certificate format or SNI configuration issues.`,
+          );
+        }
+        if (
+          error.message.includes("missing") &&
+          error.message.includes("field")
+        ) {
+          // Re-throw our custom validation errors as-is
+          throw error;
+        }
+      }
+      throw error;
+    }
   }
 }

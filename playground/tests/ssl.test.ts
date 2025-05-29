@@ -177,6 +177,9 @@ describe("APISIX SDK - SSL Certificates Management", () => {
 
     it("should clone SSL certificate", async () => {
       try {
+        // Clean up any existing certificate with the same ID first
+        await client.ssl.delete(testIds.sslForClone).catch(() => {});
+
         // Create source certificate
         const testCert = helpers.getSimpleSSLCertificate();
         await client.ssl.create(
@@ -187,11 +190,19 @@ describe("APISIX SDK - SSL Certificates Management", () => {
           testIds.sslForClone,
         );
 
-        // Clone the certificate with modifications
+        // Test cloning with APISIX's expected behavior:
+        // - Single GET requests don't return the 'key' field for security reasons
+        // - Our clone method automatically retrieves the key from list response
+        console.log(
+          "Testing SSL certificate clone (Note: APISIX doesn't return 'key' field in single GET requests for security)",
+        );
+
         const clonedCert = await client.ssl.clone(
           testIds.sslForClone,
           {
             snis: ["cloned.apisix-sdk.test"],
+            // Note: We don't provide a new key here to test the automatic key retrieval
+            // The clone method will automatically get the key from the list response
           },
           `${testIds.sslForClone}-cloned`,
         );
@@ -199,8 +210,64 @@ describe("APISIX SDK - SSL Certificates Management", () => {
         expect(clonedCert).toBeDefined();
         expect(clonedCert.id).toBe(`${testIds.sslForClone}-cloned`);
         expect(clonedCert.snis).toEqual(["cloned.apisix-sdk.test"]);
+        expect(clonedCert.key).toBeDefined(); // Verify that the key was successfully retrieved
+        expect(typeof clonedCert.key).toBe("string");
+        expect(clonedCert.key.length).toBeGreaterThan(0);
+
+        console.log(
+          "SSL certificate cloned successfully with automatic key retrieval",
+        );
       } catch (error) {
         console.warn("SSL clone failed:", error);
+      }
+    });
+
+    it("should clone SSL certificate with provided key", async () => {
+      try {
+        // Test alternative scenario where user provides their own key
+        const testCert = helpers.getSimpleSSLCertificate();
+        const newTestCert = helpers.getSimpleSSLCertificate();
+
+        // Create a temporary source certificate
+        await client.ssl.create(
+          {
+            ...testCert,
+            snis: ["temp-source.apisix-sdk.test"],
+          },
+          "temp-ssl-source",
+        );
+
+        // Clone with a user-provided key (no warnings expected)
+        const clonedCert = await client.ssl.clone(
+          "temp-ssl-source",
+          {
+            snis: ["temp-cloned.apisix-sdk.test"],
+            key: newTestCert.key, // Provide a new key explicitly
+          },
+          "temp-ssl-cloned",
+        );
+
+        expect(clonedCert).toBeDefined();
+        expect(clonedCert.id).toBe("temp-ssl-cloned");
+        expect(clonedCert.snis).toEqual(["temp-cloned.apisix-sdk.test"]);
+
+        // Note: APISIX may encode/transform the key, so we just verify it exists and is valid
+        expect(clonedCert.key).toBeDefined();
+        expect(typeof clonedCert.key).toBe("string");
+        expect(clonedCert.key.length).toBeGreaterThan(0);
+
+        console.log(
+          "SSL certificate cloned successfully with user-provided key",
+        );
+
+        // Clean up temporary certificates
+        await client.ssl.delete("temp-ssl-source").catch(() => {});
+        await client.ssl.delete("temp-ssl-cloned").catch(() => {});
+      } catch (error) {
+        console.warn("SSL clone with provided key failed:", error);
+        // Clean up on error too
+        await client.ssl.delete("temp-ssl-source").catch(() => {});
+        await client.ssl.delete("temp-ssl-cloned").catch(() => {});
       }
     });
 

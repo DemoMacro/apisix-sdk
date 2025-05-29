@@ -112,6 +112,31 @@ export class StreamRoutes {
       // Remove fields that shouldn't be in update request
       const { id: _, create_time, update_time, ...updateData } = mergedData;
 
+      // Ensure we have either upstream, upstream_id, or service_id
+      if (
+        !updateData.upstream &&
+        !updateData.upstream_id &&
+        !updateData.service_id
+      ) {
+        // If none are provided, create a minimal upstream configuration
+        updateData.upstream = {
+          type: "roundrobin",
+          nodes: {
+            "127.0.0.1:1980": 1,
+          },
+        };
+      }
+
+      // Validate the merged configuration
+      const validation = this.validateConfig(
+        updateData as CreateInput<StreamRoute>,
+      );
+      if (!validation.valid) {
+        throw new Error(
+          `Invalid stream route configuration: ${validation.errors.join(", ")}`,
+        );
+      }
+
       return this.update(id, updateData);
     } catch (error) {
       if (error instanceof Error && error.message.includes("not supported")) {

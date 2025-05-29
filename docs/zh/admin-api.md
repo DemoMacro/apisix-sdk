@@ -417,7 +417,7 @@ const groupConsumers = await client.consumers.findByGroup("premium-users");
 
 ### SSL 证书
 
-用于 HTTPS 终止的 SSL 证书。
+用于 HTTPS 终止的 SSL 证书，支持增强的安全处理。
 
 #### SSL 接口
 
@@ -462,6 +462,67 @@ const certs = await client.ssl.findBySNI("api.example.com");
 const expiration = await client.ssl.checkExpiration("ssl-id", 30);
 if (expiration.willExpireSoon) {
   console.log(`证书将在 ${expiration.daysRemaining} 天内过期`);
+}
+
+// 获取即将过期的证书
+const expiringCerts = await client.ssl.getExpiringCertificates(30);
+console.log(`发现 ${expiringCerts.length} 个证书将在 30 天内过期`);
+
+// 克隆 SSL 证书 (处理 APISIX 安全行为)
+// 注意：出于安全考虑，APISIX 在单个 GET 请求中不返回私钥
+// 克隆方法会在需要时自动从列表响应中检索密钥
+const clonedCert = await client.ssl.clone(
+  "source-cert-id",
+  {
+    snis: ["new-domain.example.com"],
+    // 可选：如果要替换原始密钥，请提供新密钥
+    // key: "-----BEGIN PRIVATE KEY-----\n...",
+  },
+  "new-cert-id",
+);
+
+// 替代方案：使用明确的密钥替换进行克隆
+const clonedWithNewKey = await client.ssl.clone(
+  "source-cert-id",
+  {
+    snis: ["another-domain.example.com"],
+    key: "-----BEGIN PRIVATE KEY-----\n...", // 新的私钥
+  },
+  "another-cert-id",
+);
+
+// 启用/禁用证书
+await client.ssl.enable("ssl-id");
+await client.ssl.disable("ssl-id");
+
+// 按状态查找
+const enabledCerts = await client.ssl.findByStatus(1);
+const disabledCerts = await client.ssl.findByStatus(0);
+```
+
+#### SSL 安全行为
+
+**重要说明**：APISIX 实施了关于私钥暴露的安全措施：
+
+- **单个 GET 请求** (`/apisix/admin/ssls/{id}`) 出于安全原因不返回 `key` 字段
+- **列表请求** (`/apisix/admin/ssls`) 在响应中包含 `key` 字段
+
+SDK 自动处理此行为：
+
+1. **自动密钥检索**：在克隆证书时，如果无法从单个 GET 请求获取源证书的密钥，SDK 会自动从列表端点检索
+2. **优雅降级**：如果自动检索失败，您可以在克隆修改中提供替换密钥
+3. **清晰的错误消息**：当需要手动提供密钥时，信息性错误消息会指导您
+
+```typescript
+// 自动密钥检索示例 (推荐方法)
+try {
+  const cloned = await client.ssl.clone("source-id", {
+    snis: ["new.example.com"],
+  });
+  console.log("证书克隆成功，自动检索密钥");
+} catch (error) {
+  console.error("克隆失败:", error.message);
+  // 错误消息会指示是否需要手动提供密钥
 }
 ```
 
