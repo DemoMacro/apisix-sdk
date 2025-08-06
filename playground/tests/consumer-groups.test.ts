@@ -162,7 +162,9 @@ describe("APISIX SDK - Consumer Groups Management", () => {
 
       expect(updated.plugins).toBeDefined();
       expect(updated.plugins?.cors).toBeDefined();
-      expect((updated.plugins?.cors as any).allow_origins).toBe("*");
+      expect(
+        updated.plugins?.cors && (updated.plugins.cors as any).allow_origins,
+      ).toBe("*");
     });
 
     it("should update plugin in consumer group", async () => {
@@ -175,9 +177,9 @@ describe("APISIX SDK - Consumer Groups Management", () => {
       );
 
       expect(updated.plugins).toBeDefined();
-      expect((updated.plugins?.cors as any).allow_origins).toBe(
-        "https://example.com",
-      );
+      expect(
+        updated.plugins?.cors && (updated.plugins.cors as any).allow_origins,
+      ).toBe("https://example.com");
     });
 
     it("should remove plugin from consumer group", async () => {
@@ -449,7 +451,7 @@ describe("APISIX SDK - Consumer Groups Management", () => {
     });
 
     it("should handle removing plugin that doesn't exist", async () => {
-      const _group = await client.consumerGroups.get(testIds.groupForPlugins);
+      await client.consumerGroups.get(testIds.groupForPlugins);
       const result = await client.consumerGroups.removePlugin(
         testIds.groupForPlugins,
         "non-existent-plugin",
@@ -461,7 +463,7 @@ describe("APISIX SDK - Consumer Groups Management", () => {
     });
 
     it("should handle removing label that doesn't exist", async () => {
-      const _group = await client.consumerGroups.get(testIds.groupForLabels);
+      await client.consumerGroups.get(testIds.groupForLabels);
       const result = await client.consumerGroups.removeLabel(
         testIds.groupForLabels,
         "non-existent-label",

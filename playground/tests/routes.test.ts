@@ -540,7 +540,7 @@ describe("APISIX SDK - Routes Management", () => {
 
     it("should search routes with advanced criteria", async () => {
       // Create a test route first
-      const _testRoute = await client.routes.create(
+      await client.routes.create(
         {
           name: "search-test-route",
           uri: "/api/search/test",
@@ -629,14 +629,15 @@ describe("APISIX SDK - Routes Management", () => {
       try {
         await client.routes.delete("getUsers").catch(() => {});
         await client.routes.delete("getUserById").catch(() => {});
-      } catch (_error) {
+      } catch (error) {
         // Ignore cleanup errors
+        console.warn("Cleanup error:", error);
       }
     });
 
     it("should export routes to OpenAPI specification", async () => {
       // Create a test route
-      const _testRoute = await client.routes.create(
+      await client.routes.create(
         {
           name: "export-test-route",
           uri: "/export/test",

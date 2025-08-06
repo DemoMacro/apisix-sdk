@@ -417,7 +417,7 @@ const groupConsumers = await client.consumers.findByGroup("premium-users");
 
 ### SSL Certificates
 
-SSL certificates for HTTPS termination with enhanced security handling.
+SSL certificates for HTTPS termination with security handling.
 
 #### SSL Interface
 

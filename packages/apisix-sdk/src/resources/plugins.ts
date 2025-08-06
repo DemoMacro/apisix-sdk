@@ -18,8 +18,9 @@ export class Plugins {
         this.client.getAdminEndpoint("/plugins/list"),
       );
       return Object.keys(response);
-    } catch (_error) {
+    } catch (error) {
       // Fallback to empty array if endpoint is not available
+      console.warn("Error fetching plugin list:", error);
       return [];
     }
   }
@@ -142,8 +143,9 @@ export class Plugins {
         this.client.getAdminEndpoint("/plugin_metadata"),
       );
       return this.client.extractList(response);
-    } catch (_error) {
+    } catch (error) {
       // Return empty array if metadata listing is not available
+      console.warn("Error fetching plugin metadata:", error);
       return [];
     }
   }
@@ -178,7 +180,7 @@ export class Plugins {
     errors?: string[];
   }> {
     try {
-      const _schema = await this.getSchema(pluginName);
+      await this.getSchema(pluginName);
 
       // Basic validation - check if config is an object
       if (typeof config !== "object" || config === null) {
@@ -342,7 +344,8 @@ export class Plugins {
       return categoryPlugins.filter((plugin) =>
         availablePlugins.includes(plugin),
       );
-    } catch (_error) {
+    } catch (error) {
+      console.warn("Error filtering plugins by category:", error);
       return categoryPlugins;
     }
   }

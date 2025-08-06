@@ -104,7 +104,10 @@ describe("APISIX SDK - Global Rules Management", () => {
 
       expect(updated).toBeDefined();
       expect(updated.plugins).toBeDefined();
-      expect((updated.plugins?.["limit-count"] as any).count).toBe(200);
+      expect(
+        updated.plugins?.["limit-count"] &&
+          (updated.plugins["limit-count"] as any).count,
+      ).toBe(200);
     });
 
     it("should partially update global rule", async () => {
@@ -186,7 +189,10 @@ describe("APISIX SDK - Global Rules Management", () => {
 
       expect(updated.plugins).toBeDefined();
       expect(updated.plugins?.["limit-count"]).toBeDefined();
-      expect((updated.plugins?.["limit-count"] as any).count).toBe(50);
+      expect(
+        updated.plugins?.["limit-count"] &&
+          (updated.plugins["limit-count"] as any).count,
+      ).toBe(50);
     });
 
     it("should update plugin in global rule", async () => {
@@ -199,7 +205,10 @@ describe("APISIX SDK - Global Rules Management", () => {
       );
 
       expect(updated.plugins).toBeDefined();
-      expect((updated.plugins?.["limit-count"] as any).count).toBe(75);
+      expect(
+        updated.plugins?.["limit-count"] &&
+          (updated.plugins["limit-count"] as any).count,
+      ).toBe(75);
     });
 
     it("should find global rules by plugin", async () => {
@@ -244,7 +253,7 @@ describe("APISIX SDK - Global Rules Management", () => {
     });
 
     it("should handle removing non-existent plugin", async () => {
-      const _rule = await client.globalRules.get(testIds.globalRuleForPlugins);
+      await client.globalRules.get(testIds.globalRuleForPlugins);
       const result = await client.globalRules.removePlugin(
         testIds.globalRuleForPlugins,
         "non-existent-plugin",
@@ -363,9 +372,9 @@ describe("APISIX SDK - Global Rules Management", () => {
         expect(limitCountPlugin).toBeDefined();
       }
 
-      expect((cloned.plugins?.cors as any).allow_origins).toBe(
-        "https://example.com",
-      );
+      expect(
+        cloned.plugins?.cors && (cloned.plugins.cors as any).allow_origins,
+      ).toBe("https://example.com");
     });
 
     it("should clone global rule without modifications", async () => {

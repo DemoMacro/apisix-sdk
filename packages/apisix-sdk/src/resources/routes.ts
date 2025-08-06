@@ -15,6 +15,74 @@ export class Routes {
     this.client = client;
   }
 
+  // Helper functions for OpenAPI route generation
+  private getString(value: unknown): string | undefined {
+    return typeof value === "string" ? value : undefined;
+  }
+
+  private getNumber(value: unknown): number | undefined {
+    return typeof value === "number" ? value : undefined;
+  }
+
+  private getBoolean(value: unknown): boolean | undefined {
+    return typeof value === "boolean" ? value : undefined;
+  }
+
+  private getStatus(value: unknown): 0 | 1 | undefined {
+    if (value === 0 || value === 1) return value;
+    return undefined;
+  }
+
+  private getObject(value: unknown): Record<string, unknown> | undefined {
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
+  }
+
+  private getUpstream(value: unknown): Upstream | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    const obj = value as Record<string, unknown>;
+
+    // Basic validation - at least check for common upstream properties
+    if (typeof obj.type === "string" || obj.nodes || obj.service_name) {
+      return obj as Upstream;
+    }
+    return undefined;
+  }
+
+  private getStringRecord(value: unknown): Record<string, string> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    const obj = value as Record<string, unknown>;
+    const result: Record<string, string> = {};
+    for (const [key, val] of Object.entries(obj)) {
+      if (typeof val === "string") {
+        result[key] = val;
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private getVars(value: unknown): [string, string, string][] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const result: [string, string, string][] = [];
+    for (const item of value) {
+      if (
+        Array.isArray(item) &&
+        item.length >= 3 &&
+        typeof item[0] === "string" &&
+        typeof item[1] === "string" &&
+        typeof item[2] === "string"
+      ) {
+        result.push([item[0], item[1], item[2]]);
+      }
+    }
+    return result.length > 0 ? result : undefined;
+  }
+
   /**
    * List all routes with optional pagination and filtering
    */
@@ -78,7 +146,7 @@ export class Routes {
    */
   async delete(id: string, options?: { force?: boolean }): Promise<boolean> {
     // Check if version supports features before using them
-    const _versionConfig = await this.client.getApiVersionConfig();
+    await this.client.getApiVersionConfig();
 
     if (options?.force) {
       await this.client.removeWithQuery(
@@ -214,7 +282,12 @@ export class Routes {
     const source = await this.get(sourceId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...routeData } = source;
+    const {
+      id: _id,
+      create_time: _create_time,
+      update_time: _update_time,
+      ...routeData
+    } = source;
 
     // Apply modifications
     const newRoute = {
@@ -468,90 +541,9 @@ export class Routes {
         result.total++;
 
         try {
-          // Helper function to safely get string property
-          const getString = (value: unknown): string | undefined => {
-            return typeof value === "string" ? value : undefined;
-          };
-
-          // Helper function to safely get number property
-          const getNumber = (value: unknown): number | undefined => {
-            return typeof value === "number" ? value : undefined;
-          };
-
-          // Helper function to safely get boolean property
-          const getBoolean = (value: unknown): boolean | undefined => {
-            return typeof value === "boolean" ? value : undefined;
-          };
-
-          // Helper function to safely get status (0 or 1)
-          const getStatus = (value: unknown): 0 | 1 | undefined => {
-            if (value === 0 || value === 1) return value;
-            return undefined;
-          };
-
-          // Helper function to safely get object property
-          const getObject = (
-            value: unknown,
-          ): Record<string, unknown> | undefined => {
-            return value && typeof value === "object" && !Array.isArray(value)
-              ? (value as Record<string, unknown>)
-              : undefined;
-          };
-
-          // Helper function to safely get upstream object
-          const getUpstream = (value: unknown): Upstream | undefined => {
-            if (!value || typeof value !== "object" || Array.isArray(value)) {
-              return undefined;
-            }
-            const obj = value as Record<string, unknown>;
-
-            // Basic validation - at least check for common upstream properties
-            if (typeof obj.type === "string" || obj.nodes || obj.service_name) {
-              return obj as Upstream;
-            }
-            return undefined;
-          };
-
-          // Helper function to safely get string record
-          const getStringRecord = (
-            value: unknown,
-          ): Record<string, string> | undefined => {
-            if (!value || typeof value !== "object" || Array.isArray(value)) {
-              return undefined;
-            }
-            const obj = value as Record<string, unknown>;
-            const result: Record<string, string> = {};
-            for (const [key, val] of Object.entries(obj)) {
-              if (typeof val === "string") {
-                result[key] = val;
-              }
-            }
-            return Object.keys(result).length > 0 ? result : undefined;
-          };
-
-          // Helper function to safely get vars array
-          const getVars = (
-            value: unknown,
-          ): [string, string, string][] | undefined => {
-            if (!Array.isArray(value)) return undefined;
-            const result: [string, string, string][] = [];
-            for (const item of value) {
-              if (
-                Array.isArray(item) &&
-                item.length >= 3 &&
-                typeof item[0] === "string" &&
-                typeof item[1] === "string" &&
-                typeof item[2] === "string"
-              ) {
-                result.push([item[0], item[1], item[2]]);
-              }
-            }
-            return result.length > 0 ? result : undefined;
-          };
-
-          const operationId = getString(operation.operationId);
-          const summary = getString(operation.summary);
-          const description = getString(operation.description);
+          const operationId = this.getString(operation.operationId);
+          const summary = this.getString(operation.summary);
+          const description = this.getString(operation.description);
 
           const route: CreateInput<Route> = {
             name:
@@ -560,15 +552,17 @@ export class Routes {
             uri: path,
             methods: [method.toUpperCase()],
             upstream:
-              getUpstream(operation["x-apisix-upstream"]) ||
+              this.getUpstream(operation["x-apisix-upstream"]) ||
               options?.defaultUpstream,
-            service_id: getString(operation["x-apisix-service_id"]),
-            plugins: getObject(operation["x-apisix-plugins"]),
-            status: getStatus(operation["x-apisix-status"]) || 1,
-            priority: getNumber(operation["x-apisix-priority"]),
-            enable_websocket: getBoolean(operation["x-apisix-enableWebsocket"]),
-            labels: getStringRecord(operation["x-apisix-labels"]),
-            vars: getVars(operation["x-apisix-vars"]),
+            service_id: this.getString(operation["x-apisix-service_id"]),
+            plugins: this.getObject(operation["x-apisix-plugins"]),
+            status: this.getStatus(operation["x-apisix-status"]) || 1,
+            priority: this.getNumber(operation["x-apisix-priority"]),
+            enable_websocket: this.getBoolean(
+              operation["x-apisix-enableWebsocket"],
+            ),
+            labels: this.getStringRecord(operation["x-apisix-labels"]),
+            vars: this.getVars(operation["x-apisix-vars"]),
           };
 
           // Validate route if requested

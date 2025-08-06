@@ -109,7 +109,12 @@ export class Credentials {
       };
 
       // Remove fields that shouldn't be in update request
-      const { id, create_time, update_time, ...updateData } = mergedData;
+      const {
+        id: _id,
+        create_time: _create_time,
+        update_time: _update_time,
+        ...updateData
+      } = mergedData;
 
       // Use PUT to update, then GET to return the correct format
       // because PUT response returns Base64 encoded keys while GET returns original keys
@@ -250,7 +255,12 @@ export class Credentials {
     const source = await this.get(sourceConsumerId, sourceCredentialId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...credentialData } = source;
+    const {
+      id: _id,
+      create_time: _create_time,
+      update_time: _update_time,
+      ...credentialData
+    } = source;
 
     // Apply modifications
     const newCredential = {

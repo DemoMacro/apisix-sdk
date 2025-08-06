@@ -123,10 +123,14 @@ describe("APISIX SDK - Credentials Management", () => {
         );
 
         expect(updated.plugins?.["key-auth"]).toBeDefined();
-        expect((updated.plugins?.["key-auth"] as any).key).toBeTruthy();
-        expect(typeof (updated.plugins?.["key-auth"] as any).key).toBe(
-          "string",
-        );
+        expect(
+          updated.plugins?.["key-auth"] &&
+            (updated.plugins["key-auth"] as any).key,
+        ).toBeTruthy();
+        expect(
+          updated.plugins?.["key-auth"] &&
+            typeof (updated.plugins["key-auth"] as any).key,
+        ).toBe("string");
       });
     });
   });
@@ -250,9 +254,10 @@ describe("APISIX SDK - Credentials Management", () => {
 
         expect(patched.plugins?.["key-auth"]).toBeDefined();
         // APISIX returns the original key value in GET responses
-        expect((patched.plugins?.["key-auth"] as any).key).toBe(
-          "patched-api-key-789",
-        );
+        expect(
+          patched.plugins?.["key-auth"] &&
+            (patched.plugins["key-auth"] as any).key,
+        ).toBe("patched-api-key-789");
       });
     });
   });

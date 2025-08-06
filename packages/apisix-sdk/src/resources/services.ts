@@ -175,7 +175,12 @@ export class Services {
     const source = await this.get(sourceId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...serviceData } = source;
+    const {
+      id: _id,
+      create_time: _create_time,
+      update_time: _update_time,
+      ...serviceData
+    } = source;
 
     // Apply modifications
     const newService = {

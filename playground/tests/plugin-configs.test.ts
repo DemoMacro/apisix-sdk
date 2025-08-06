@@ -120,7 +120,10 @@ describe("APISIX SDK - Plugin Configs Management", () => {
 
       expect(updated.desc).toBe("Updated test plugin configuration");
       expect(updated.plugins?.prometheus).toBeDefined();
-      expect((updated.plugins?.["limit-count"] as any).count).toBe(200);
+      expect(
+        updated.plugins?.["limit-count"] &&
+          (updated.plugins["limit-count"] as any).count,
+      ).toBe(200);
     });
 
     it("should delete plugin config", async () => {
@@ -210,7 +213,7 @@ describe("APISIX SDK - Plugin Configs Management", () => {
       const corsPlugin = updated.plugins?.cors;
       if (corsPlugin) {
         // If plugin still exists, check if it's been marked as disabled or modified
-        const _metaData = (corsPlugin as any)._meta;
+        (corsPlugin as any)._meta;
         // Accept that plugin might still exist but with changed metadata
         console.log("CORS plugin after removal:", corsPlugin);
       }

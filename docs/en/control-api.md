@@ -77,7 +77,7 @@ interface ControlAPI {
 
 ### Health Check
 
-Monitor the overall health status of APISIX with enhanced response handling.
+Monitor the overall health status of APISIX with response handling.
 
 ```typescript
 // Basic health check with improved error handling

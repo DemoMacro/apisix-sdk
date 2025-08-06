@@ -110,7 +110,12 @@ export class StreamRoutes {
       };
 
       // Remove fields that shouldn't be in update request
-      const { id: _, create_time, update_time, ...updateData } = mergedData;
+      const {
+        id: _,
+        create_time: _create_time,
+        update_time: _update_time,
+        ...updateData
+      } = mergedData;
 
       // Ensure we have either upstream, upstream_id, or service_id
       if (
@@ -282,7 +287,12 @@ export class StreamRoutes {
     const source = await this.get(sourceId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...routeData } = source;
+    const {
+      id: _id,
+      create_time: _create_time,
+      update_time: _update_time,
+      ...routeData
+    } = source;
 
     // Apply modifications
     const newRoute = {

@@ -85,7 +85,7 @@ export class PluginConfigs {
     config: Record<string, unknown>,
   ): Promise<PluginConfig> {
     const pluginConfig = await this.get(id);
-    const plugins = { ...(pluginConfig.plugins || {}), [pluginName]: config };
+    const plugins = { ...pluginConfig.plugins, [pluginName]: config };
     return this.update(id, { plugins });
   }
 
@@ -94,7 +94,7 @@ export class PluginConfigs {
    */
   async removePlugin(id: string, pluginName: string): Promise<PluginConfig> {
     const pluginConfig = await this.get(id);
-    const plugins = { ...(pluginConfig.plugins || {}) };
+    const plugins = { ...pluginConfig.plugins };
     delete plugins[pluginName];
     return this.update(id, { plugins });
   }
@@ -108,7 +108,7 @@ export class PluginConfigs {
     config: Record<string, unknown>,
   ): Promise<PluginConfig> {
     const pluginConfig = await this.get(id);
-    const plugins = { ...(pluginConfig.plugins || {}), [pluginName]: config };
+    const plugins = { ...pluginConfig.plugins, [pluginName]: config };
     return this.update(id, { plugins });
   }
 
@@ -126,10 +126,9 @@ export class PluginConfigs {
     }
 
     const plugins = {
-      ...(pluginConfig.plugins || {}),
+      ...pluginConfig.plugins,
       [pluginName]: {
-        ...((pluginConfig.plugins[pluginName] as Record<string, unknown>) ||
-          {}),
+        ...(pluginConfig.plugins[pluginName] as Record<string, unknown>),
         _meta: {
           disable: !enabled,
         },
@@ -348,9 +347,15 @@ export class PluginConfigs {
   async import(jsonString: string, newId?: string): Promise<PluginConfig> {
     try {
       const config = JSON.parse(jsonString) as PluginConfig;
-      const { id, create_time, update_time, ...data } = config;
+      const {
+        id,
+        create_time: _create_time,
+        update_time: _update_time,
+        ...data
+      } = config;
       return this.create(data, newId || id);
-    } catch (_error) {
+    } catch (error) {
+      console.error("Error parsing JSON:", error);
       throw new Error("Invalid JSON format for plugin config");
     }
   }

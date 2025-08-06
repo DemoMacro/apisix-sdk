@@ -229,7 +229,12 @@ export class GlobalRules {
     const source = await this.get(sourceId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...ruleData } = source;
+    const {
+      id: _id,
+      create_time: _create_time,
+      update_time: _update_time,
+      ...ruleData
+    } = source;
 
     // Apply modifications
     const newRule = {

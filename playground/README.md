@@ -313,25 +313,21 @@ pnpm test:coverage
 **Common Issues and Solutions:**
 
 1. **Control API connection errors (port 9090):**
-
    - Ensure `enable_control: true` is set in config.yaml
    - Verify the port 9090 is not blocked by firewall
    - Check APISIX logs: `tail -f logs/error.log`
 
 2. **Stream route tests failing:**
-
    - Ensure `proxy_mode: http&stream` is configured
    - Verify stream_proxy TCP/UDP ports are configured
    - Stream proxy requires APISIX 2.10.0+
 
 3. **SSL certificate tests failing:**
-
    - Ensure SSL is enabled in the configuration
    - Check that port 9443 is configured with SSL
    - Verify SSL certificates are present in playground/tests/fixtures/
 
 4. **Pagination tests failing:**
-
    - Pagination requires APISIX 3.0+
    - Some resources may not support pagination in older versions
 

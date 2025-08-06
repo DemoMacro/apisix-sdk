@@ -266,7 +266,12 @@ export class Upstreams {
     const source = await this.get(sourceId);
 
     // Remove fields that shouldn't be copied
-    const { id, create_time, update_time, ...upstreamData } = source;
+    const {
+      id: _id,
+      create_time: _create_time,
+      update_time: _update_time,
+      ...upstreamData
+    } = source;
 
     // Apply modifications
     const newUpstream = {

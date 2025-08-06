@@ -1,6 +1,5 @@
 import type { ApisixClient } from "../client";
 import type {
-  DiscoveryDump,
   DiscoveryDumpFile,
   HealthCheckStatus,
   PluginInfo,

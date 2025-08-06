@@ -321,11 +321,11 @@ export class SSLCertificates {
 
       // Remove fields that shouldn't be copied or are auto-generated
       const {
-        id,
-        create_time,
-        update_time,
-        validity_start,
-        validity_end,
+        id: _id,
+        create_time: _create_time,
+        update_time: _update_time,
+        validity_start: _validity_start,
+        validity_end: _validity_end,
         ...sslData
       } = source;
 

@@ -8,6 +8,19 @@ import type {
   ServerInfo,
 } from "./types";
 
+interface ConnectionPool {
+  admin: Map<string, Connection>;
+  control: Map<string, Connection>;
+  maxSize: number;
+  ttl: number;
+}
+
+interface Connection {
+  url: string;
+  lastUsed: number;
+  keepAlive: boolean;
+}
+
 export class ApisixClient {
   private adminBaseURL: string;
   private controlBaseURL: string;
@@ -18,6 +31,11 @@ export class ApisixClient {
   private controlHeaders: Record<string, string>;
   private _serverInfo?: ServerInfo;
   private _apiVersion?: string;
+  private connectionPool: ConnectionPool;
+  private retryAttempts: number = 3;
+  private retryDelay: number = 1000;
+  private queryCache: Map<string, { data: unknown; expires: number }>;
+  private cacheTTL: number = 30000; // 30 seconds
 
   constructor(config: ApisixSDKConfig) {
     this.adminBaseURL = config.adminAPI.baseURL.replace(/\/$/, ""); // Remove trailing slash
@@ -28,6 +46,17 @@ export class ApisixClient {
     this.controlTimeout = config.controlAPI?.timeout || this.adminTimeout;
     this.adminHeaders = config.adminAPI.headers || {};
     this.controlHeaders = config.controlAPI?.headers || {};
+
+    // Initialize connection pool
+    this.connectionPool = {
+      admin: new Map(),
+      control: new Map(),
+      maxSize: 10,
+      ttl: 300000, // 5 minutes
+    };
+
+    // Initialize query cache
+    this.queryCache = new Map();
   }
 
   /**
@@ -43,7 +72,7 @@ export class ApisixClient {
         console.warn("Failed to get server info from Control API:", error);
         // Fallback: try to get version from admin API
         try {
-          const _response = await this.request<string>("/", { method: "HEAD" });
+          await this.request<string>("/", { method: "HEAD" });
           console.warn(
             "Fallback: using HEAD request, could not get real version",
           );
@@ -141,6 +170,133 @@ export class ApisixClient {
   }
 
   /**
+   * Get or create connection from pool
+   */
+  private getConnection(url: string, isControlAPI: boolean): string {
+    const pool = isControlAPI
+      ? this.connectionPool.control
+      : this.connectionPool.admin;
+    const now = Date.now();
+
+    // Clean expired connections
+    for (const [key, conn] of pool.entries()) {
+      if (now - conn.lastUsed > this.connectionPool.ttl) {
+        pool.delete(key);
+      }
+    }
+
+    // Remove oldest connection if pool is full
+    if (pool.size >= this.connectionPool.maxSize) {
+      const oldestKey = pool.keys().next().value;
+      pool.delete(oldestKey);
+    }
+
+    // Add new connection
+    pool.set(url, {
+      url,
+      lastUsed: now,
+      keepAlive: true,
+    });
+
+    return url;
+  }
+
+  /**
+   * Generate cache key for request
+   */
+  private getCacheKey(
+    endpoint: string,
+    options: {
+      method?: string;
+      params?: Record<string, string | number | boolean | string[] | undefined>;
+    },
+  ): string {
+    const method = options.method || "GET";
+    const params = options.params ? JSON.stringify(options.params) : "";
+    return `${method}:${endpoint}:${params}`;
+  }
+
+  /**
+   * Get cached response if available and not expired
+   */
+  private getCachedResponse<T>(cacheKey: string): T | null {
+    const cached = this.queryCache.get(cacheKey);
+    if (!cached) return null;
+
+    if (Date.now() > cached.expires) {
+      this.queryCache.delete(cacheKey);
+      return null;
+    }
+
+    return cached.data as T;
+  }
+
+  /**
+   * Cache response data
+   */
+  private cacheResponse(cacheKey: string, data: unknown): void {
+    this.queryCache.set(cacheKey, {
+      data,
+      expires: Date.now() + this.cacheTTL,
+    });
+  }
+
+  /**
+   * Smart retry with exponential backoff
+   */
+  private async retryRequest<T>(
+    requestFn: () => Promise<T>,
+    maxAttempts: number = this.retryAttempts,
+    baseDelay: number = this.retryDelay,
+  ): Promise<T> {
+    let lastError: Error = new Error("Unknown error");
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await requestFn();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+
+        // Don't retry on certain error types
+        if (this.isNonRetryableError(lastError)) {
+          throw lastError;
+        }
+
+        if (attempt === maxAttempts) {
+          break;
+        }
+
+        // Exponential backoff with jitter
+        const delay = Math.min(
+          baseDelay * Math.pow(2, attempt - 1) + Math.random() * 100,
+          10000, // Max 10 seconds
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Check if error should not be retried
+   */
+  private isNonRetryableError(error: Error): boolean {
+    const nonRetryableMessages = [
+      "unauthorized",
+      "forbidden",
+      "not found",
+      "invalid",
+      "validation",
+      "already exists",
+    ];
+
+    const message = error.message.toLowerCase();
+    return nonRetryableMessages.some((msg) => message.includes(msg));
+  }
+
+  /**
    * Make HTTP request with proper authentication and error handling
    */
   protected async request<T>(
@@ -150,6 +306,8 @@ export class ApisixClient {
       headers?: Record<string, string>;
       body?: Record<string, unknown> | string;
       params?: Record<string, string | number | boolean | string[] | undefined>;
+      signal?: AbortSignal;
+      skipCache?: boolean;
     } = {},
   ): Promise<T> {
     // Determine if this is a Control API call based on endpoint
@@ -168,10 +326,23 @@ export class ApisixClient {
 
     const url = `${baseUrl}${endpoint}`;
 
+    // Check cache for GET requests (unless skipped)
+    if (options.method === "GET" || !options.method) {
+      const cacheKey = this.getCacheKey(endpoint, options);
+      const cached = this.getCachedResponse<T>(cacheKey);
+      if (cached && !options.skipCache) {
+        return cached;
+      }
+    }
+
+    // Get connection from pool
+    this.getConnection(url, isControlAPI);
+
     const requestConfig = {
       timeout,
       headers: {
         "Content-Type": "application/json",
+        Connection: "keep-alive",
         ...baseHeaders,
         ...(!isControlAPI && this.apiKey && { "X-API-KEY": this.apiKey }),
         ...options.headers,
@@ -179,10 +350,26 @@ export class ApisixClient {
       method: options.method || "GET",
       body: options.body,
       params: options.params,
+      signal: options.signal,
     };
 
     try {
-      const response = await $fetch<T>(url, requestConfig);
+      // Use smart retry for the request
+      const response = await this.retryRequest(async () => {
+        const result = await $fetch<T>(url, requestConfig);
+
+        // Cache successful GET responses
+        if (
+          (options.method === "GET" || !options.method) &&
+          !options.skipCache
+        ) {
+          const cacheKey = this.getCacheKey(endpoint, options);
+          this.cacheResponse(cacheKey, result);
+        }
+
+        return result;
+      });
+
       return response;
     } catch (error: unknown) {
       // Handle APISIX specific error responses
@@ -194,16 +381,68 @@ export class ApisixClient {
           "error_msg" in errorData
         ) {
           const apisixError = errorData as ErrorResponse;
-          throw new Error(`APISIX API Error: ${apisixError.error_msg}`);
+          throw new Error(
+            `APISIX API Error: ${apisixError.error_msg} [${options.method || "GET"} ${endpoint}]`,
+          );
         }
       }
 
       // Handle network and other errors
       const message = error instanceof Error ? error.message : "Unknown error";
       throw new Error(
-        `Request failed: [${options.method || "GET"}] "${url}": ${message}`,
+        `APISIX SDK Request failed: [${options.method || "GET"}] "${url}" - ${this.getErrorMessage(message, options.method || "GET", endpoint)}`,
       );
     }
+  }
+
+  /**
+   * Get error message with suggestions
+   */
+  private getErrorMessage(
+    originalMessage: string,
+    method: string,
+    endpoint: string,
+  ): string {
+    const message = originalMessage.toLowerCase();
+
+    // Network connectivity issues
+    if (
+      message.includes("econnrefused") ||
+      message.includes("connection refused")
+    ) {
+      return "Connection refused. Please check if APISIX is running and accessible.";
+    }
+
+    // Timeout issues
+    if (message.includes("timeout")) {
+      return "Request timeout. Consider increasing timeout or checking APISIX performance.";
+    }
+
+    // Authentication issues
+    if (message.includes("unauthorized") || message.includes("401")) {
+      return "Authentication failed. Please check your API key and permissions.";
+    }
+
+    // Not found errors
+    if (message.includes("not found") || message.includes("404")) {
+      return `Resource not found. Check if the endpoint ${endpoint} exists.`;
+    }
+
+    // Validation errors
+    if (message.includes("validation") || message.includes("invalid")) {
+      return "Invalid request data. Please check your request format and required fields.";
+    }
+
+    // Rate limiting
+    if (
+      message.includes("rate limit") ||
+      message.includes("too many requests")
+    ) {
+      return "Rate limit exceeded. Please wait before making another request.";
+    }
+
+    // Return original message if no specific suggestion is available
+    return originalMessage;
   }
 
   /**
@@ -220,15 +459,19 @@ export class ApisixClient {
   }
 
   /**
-   * POST request
+   * POST request with optional cancellation support
    */
   public async post<T>(
     endpoint: string,
     body?: Record<string, unknown> | string,
+    options?: {
+      signal?: AbortSignal;
+    },
   ): Promise<T> {
     return this.request<T>(endpoint, {
       method: "POST",
       body,
+      signal: options?.signal,
     });
   }
 
@@ -288,7 +531,11 @@ export class ApisixClient {
       const supportsPag = await this.supportsPagination();
       if (!supportsPag) {
         // Remove pagination parameters for non-supporting versions
-        const { page, page_size, ...nonPaginationOptions } = options;
+        const {
+          page: _page,
+          page_size: _page_size,
+          ...nonPaginationOptions
+        } = options;
         return this.get<ApisixListResponse<T>>(endpoint, nonPaginationOptions);
       }
     }
@@ -672,7 +919,8 @@ export class ApisixClient {
     if (typeof data === "string") {
       try {
         parsedData = JSON.parse(data);
-      } catch (_error) {
+      } catch (error) {
+        console.error("Error parsing JSON:", error);
         throw new Error("Invalid JSON data provided");
       }
     } else {
@@ -858,5 +1106,122 @@ export class ApisixClient {
       throw new Error("Invalid data format");
     }
     return true;
+  }
+
+  /**
+   * Clear query cache
+   */
+  public clearCache(): void {
+    this.queryCache.clear();
+  }
+
+  /**
+   * Clear cache for specific endpoint
+   */
+  public clearCacheForEndpoint(endpoint: string): void {
+    const keysToDelete: string[] = [];
+    for (const [key] of this.queryCache.entries()) {
+      if (key.includes(endpoint)) {
+        keysToDelete.push(key);
+      }
+    }
+    keysToDelete.forEach((key) => this.queryCache.delete(key));
+  }
+
+  /**
+   * Get cache statistics
+   */
+  public getCacheStats(): {
+    totalEntries: number;
+    expiredEntries: number;
+    sizeInBytes: number;
+  } {
+    const now = Date.now();
+    let expiredCount = 0;
+    let totalSize = 0;
+
+    for (const [key, value] of this.queryCache.entries()) {
+      if (now > value.expires) {
+        expiredCount++;
+      }
+      totalSize += key.length + JSON.stringify(value).length;
+    }
+
+    return {
+      totalEntries: this.queryCache.size,
+      expiredEntries: expiredCount,
+      sizeInBytes: totalSize,
+    };
+  }
+
+  /**
+   * Clear connection pool
+   */
+  public clearConnectionPool(): void {
+    this.connectionPool.admin.clear();
+    this.connectionPool.control.clear();
+  }
+
+  /**
+   * Get connection pool statistics
+   */
+  public getConnectionPoolStats(): {
+    adminConnections: number;
+    controlConnections: number;
+    totalConnections: number;
+    maxPoolSize: number;
+    ttl: number;
+  } {
+    return {
+      adminConnections: this.connectionPool.admin.size,
+      controlConnections: this.connectionPool.control.size,
+      totalConnections:
+        this.connectionPool.admin.size + this.connectionPool.control.size,
+      maxPoolSize: this.connectionPool.maxSize,
+      ttl: this.connectionPool.ttl,
+    };
+  }
+
+  /**
+   * Configure retry settings
+   */
+  public configureRetry(options: {
+    maxAttempts?: number;
+    baseDelay?: number;
+  }): void {
+    if (options.maxAttempts) {
+      this.retryAttempts = Math.max(1, options.maxAttempts);
+    }
+    if (options.baseDelay) {
+      this.retryDelay = Math.max(100, options.baseDelay);
+    }
+  }
+
+  /**
+   * Configure cache settings
+   */
+  public configureCache(options: { ttl?: number; maxSize?: number }): void {
+    if (options.ttl) {
+      this.cacheTTL = Math.max(1000, options.ttl);
+    }
+    if (options.maxSize) {
+      // Clean cache if new max size is smaller than current size
+      if (this.queryCache.size > options.maxSize) {
+        const entries = Array.from(this.queryCache.entries());
+        entries.sort((a, b) => a[1].expires - b[1].expires);
+        const toDelete = entries.slice(
+          0,
+          this.queryCache.size - options.maxSize,
+        );
+        toDelete.forEach(([key]) => this.queryCache.delete(key));
+      }
+    }
+  }
+
+  /**
+   * Create AbortController for request cancellation
+   */
+  public createAbortController(): AbortController {
+    return new AbortController();
   }
 }
