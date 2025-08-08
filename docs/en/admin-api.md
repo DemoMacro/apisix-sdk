@@ -20,6 +20,25 @@ The Apache APISIX Admin API provides RESTful endpoints for managing all aspects 
   - [Secrets](#secrets)
   - [Credentials](#credentials)
   - [Protos](#protos)
+- [Advanced Features](#advanced-features)
+  - [Connection Pool Management](#connection-pool-management)
+  - [Query Caching Mechanism](#query-caching-mechanism)
+  - [Smart Retry Mechanism](#smart-retry-mechanism)
+  - [Version Compatibility Detection](#version-compatibility-detection)
+  - [Request Cancellation](#request-cancellation)
+  - [System Monitoring and Statistics](#system-monitoring-and-statistics)
+  - [Configuration Validation and Recommendation System](#configuration-validation-and-recommendation-system)
+  - [Plugin Metadata Management](#plugin-metadata-management)
+  - [Prometheus Integration](#prometheus-integration)
+  - [SSL Certificates](#ssl-certificates)
+  - [Plugins](#plugins)
+  - [Global Rules](#global-rules)
+  - [Consumer Groups](#consumer-groups)
+  - [Plugin Configs](#plugin-configs)
+  - [Stream Routes](#stream-routes)
+  - [Secrets](#secrets)
+  - [Credentials](#credentials)
+  - [Protos](#protos)
 - [API Features](#api-features)
 - [Error Handling](#error-handling)
 - [Examples](#examples)
@@ -750,6 +769,290 @@ const proto = await client.protos.create({
 
 // Find by content
 const grpcProtos = await client.protos.findByContent("UserService");
+```
+
+## Advanced Features
+
+### Connection Pool Management
+
+The SDK implements efficient connection pool management with automatic connection reuse and cleanup to improve performance and reduce resource consumption.
+
+```typescript
+// Get connection pool statistics
+const poolStats = client.getConnectionPoolStats();
+console.log("Connection pool stats:", {
+  adminConnections: poolStats.adminConnections,
+  controlConnections: poolStats.controlConnections,
+  totalConnections: poolStats.totalConnections,
+  maxPoolSize: poolStats.maxPoolSize,
+  connectionTTL: poolStats.ttl + "ms",
+});
+
+// Clear connection pool
+client.clearConnectionPool();
+
+// Connection pool is automatically configured during client initialization
+const client = new ApisixSDK({
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180",
+    apiKey: "your-api-key",
+  },
+  // Connection pool auto-initializes with max 10 connections, 5-minute TTL
+});
+```
+
+**Connection Pool Features:**
+
+- Automatic connection reuse to reduce connection establishment overhead
+- Intelligent expiration cleanup to remove idle connections
+- Connection pool size limits to prevent excessive resource consumption
+- Separate management of Admin API and Control API connections
+
+### Query Caching Mechanism
+
+The SDK includes intelligent query caching that automatically caches GET request results to reduce redundant requests and improve response speed.
+
+```typescript
+// Get cache statistics
+const cacheStats = client.getCacheStats();
+console.log("Cache statistics:", {
+  totalEntries: cacheStats.totalEntries,
+  expiredEntries: cacheStats.expiredEntries,
+  memoryUsage: cacheStats.sizeInBytes + " bytes",
+});
+
+// Clear all cache
+client.clearCache();
+
+// Clear cache for specific endpoint
+client.clearCacheForEndpoint("/routes");
+
+// Skip cache for fresh requests
+const freshData = await client.routes.list(undefined, { skipCache: true });
+
+// Configure cache settings
+client.configureCache({
+  ttl: 60000, // 60-second cache
+  maxSize: 1000, // Maximum 1000 cache entries
+});
+```
+
+**Caching Features:**
+
+- 30-second default TTL (configurable)
+- Automatic expiration cleanup
+- Smart cache keys based on request method and parameters
+- Support for manual cache clearing and statistics queries
+
+### Smart Retry Mechanism
+
+The SDK implements a smart retry mechanism with exponential backoff to automatically handle network failures and temporary errors.
+
+```typescript
+// Configure retry settings
+client.configureRetry({
+  maxAttempts: 5, // Maximum retry attempts
+  baseDelay: 2000, // Base delay of 2 seconds
+});
+
+// Retries are automatically applied to all requests
+try {
+  const route = await client.routes.get("route-id");
+  // If request fails, SDK automatically retries (up to 5 times)
+} catch (error) {
+  // Error thrown only after all retries fail
+  console.log("All retries failed:", error.message);
+}
+
+// Retry mechanism intelligently skips certain error types:
+// - Authentication errors (401)
+// - Authorization errors (403)
+// - Resource not found (404)
+// - Data validation errors
+// - Resource already exists conflicts
+```
+
+**Retry Features:**
+
+- Exponential backoff algorithm to prevent request storms
+- Smart error classification, only retrying recoverable errors
+- Configurable retry count and delay
+- Random jitter to prevent synchronized retries
+
+### Version Compatibility Detection
+
+The SDK automatically detects APISIX version and provides compatibility support to ensure it works across different versions.
+
+```typescript
+// Get current APISIX version
+const version = await client.getVersion();
+console.log("APISIX version:", version);
+
+// Check version compatibility
+const isCompatible = await client.isVersionCompatible("3.2.0");
+console.log("Compatible with 3.2.0:", isCompatible);
+
+// Check if version is 3.0 or later
+const isV3Plus = await client.isVersion3OrLater();
+console.log("Supports v3+ features:", isV3Plus);
+
+// Get version-specific configuration
+const versionConfig = await client.getApiVersionConfig();
+console.log("Version features:", {
+  supportsCredentials: versionConfig.supportsCredentials,
+  supportsSecrets: versionConfig.supportsSecrets,
+  supportsNewResponseFormat: versionConfig.supportsNewResponseFormat,
+  supportsStreamRoutes: versionConfig.supportsStreamRoutes,
+  supportsPagination: versionConfig.supportsPagination,
+});
+```
+
+**Version Detection Features:**
+
+- Automatic version detection and caching
+- Version comparison functionality
+- API feature compatibility checking
+- Downgrade support for older versions
+
+### Request Cancellation
+
+The SDK supports request cancellation, allowing long-running operations to be terminated mid-execution.
+
+```typescript
+// Create AbortController
+const controller = client.createAbortController();
+
+// Make cancellable request
+const requestPromise = client.routes.list(undefined, {
+  signal: controller.signal,
+});
+
+// Cancel request
+setTimeout(() => {
+  controller.abort();
+  console.log("Request cancelled");
+}, 1000);
+
+try {
+  const routes = await requestPromise;
+} catch (error) {
+  if (error.name === "AbortError") {
+    console.log("Request was cancelled");
+  } else {
+    console.log("Other error:", error.message);
+  }
+}
+```
+
+### System Monitoring and Statistics
+
+Get detailed system monitoring information and statistics through the Control API.
+
+```typescript
+// Get system overview
+const overview = await client.control.getSystemOverview();
+console.log("System overview:", {
+  serverInfo: overview.server,
+  schemaInfo: overview.schemas,
+  healthStatus: overview.health,
+  upstreamHealth: overview.upstreamHealth,
+  discoveryServices: overview.discoveryServices,
+});
+
+// Get memory statistics
+const memoryStats = await client.control.getMemoryStats();
+console.log("Memory usage:", memoryStats);
+
+// Get Prometheus metrics
+const metrics = await client.control.getPrometheusMetrics();
+console.log("Prometheus metrics:", metrics.substring(0, 200) + "...");
+
+// Health check
+const isHealthy = await client.control.isHealthy();
+console.log("System health status:", isHealthy);
+
+// Trigger garbage collection
+const gcResult = await client.control.triggerGC();
+console.log("GC result:", gcResult);
+```
+
+### Configuration Validation and Recommendation System
+
+The SDK provides configuration validation and recommendation features to help optimize APISIX configuration.
+
+```typescript
+// Validate route configuration
+const validation = await client.control.validateSchema("route", routeConfig, {
+  validatePlugins: true,
+  pluginName: "limit-count",
+});
+
+if (!validation.valid) {
+  console.log("Validation errors:", validation.errors);
+  console.log("Validation warnings:", validation.warnings);
+}
+
+// Get configuration recommendations
+const recommendations = await client.control.getValidationRecommendations();
+console.log("Available plugins:", recommendations.availablePlugins);
+console.log("Deprecated plugins:", recommendations.deprecatedPlugins);
+console.log("Recommended settings:", recommendations.recommendedSettings);
+
+// Check schema compatibility
+const compatibility = await client.control.getSchemaCompatibility("3.6.0");
+console.log("Compatibility check:", {
+  currentVersion: compatibility.currentVersion,
+  targetVersion: compatibility.targetVersion,
+  compatible: compatibility.compatible,
+  breakingChanges: compatibility.breaking_changes,
+  newFeatures: compatibility.new_features,
+});
+```
+
+### Plugin Metadata Management
+
+Manage and query plugin metadata information.
+
+```typescript
+// Get all plugin metadata
+const pluginMetadata = await client.control.getPluginMetadata();
+console.log("Plugin metadata:", pluginMetadata);
+
+// Get specific plugin metadata
+const pluginInfo = await client.control.getPluginMetadataById("limit-count");
+console.log("limit-count plugin info:", pluginInfo);
+
+// Reload plugins
+const reloadResult = await client.control.reloadPlugins();
+console.log("Plugin reload result:", reloadResult);
+```
+
+### Prometheus Integration
+
+Integrate with Prometheus monitoring to collect detailed performance metrics.
+
+```typescript
+// Get Prometheus metrics
+const metrics = await client.control.getPrometheusMetrics();
+
+// Parse key metrics
+const lines = metrics.split("\n");
+const httpRequests = lines.find((line) =>
+  line.startsWith("http_requests_total"),
+);
+const responseTime = lines.find((line) =>
+  line.startsWith("apisix_http_latency_seconds"),
+);
+
+console.log("HTTP total requests:", httpRequests);
+console.log("Response time:", responseTime);
+
+// Metric types include:
+// - http_requests_total: Total HTTP requests
+// - apisix_http_latency_seconds: Response time
+// - apisix_bandwidth_bytes: Bandwidth usage
+// - apisix_connections_active: Active connections
+// - apisix_etcd_reachable: etcd connection status
 ```
 
 ## API Features
