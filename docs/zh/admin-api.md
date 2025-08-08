@@ -20,6 +20,16 @@ Apache APISIX 管理 API 提供了 RESTful 端点，用于管理 API 网关配�
   - [Secrets](#secrets)
   - [Credentials](#credentials)
   - [Protos](#protos)
+- [高级特性](#高级特性)
+  - [连接池管理](#连接池管理)
+  - [查询缓存机制](#查询缓存机制)
+  - [智能重试机制](#智能重试机制)
+  - [版本兼容性检测](#版本兼容性检测)
+  - [请求取消功能](#请求取消功能)
+  - [系统监控和统计](#系统监控和统计)
+  - [配置验证和建议系统](#配置验证和建议系统)
+  - [插件元数据管理](#插件元数据管理)
+  - [Prometheus 集成](#prometheus-集成)
 - [API 特性](#api-特性)
 - [错误处理](#错误处理)
 - [示例](#示例)
@@ -748,6 +758,290 @@ const proto = await client.protos.create({
 
 // 按内容查找
 const grpcProtos = await client.protos.findByContent("UserService");
+```
+
+## 高级特性
+
+### 连接池管理
+
+SDK 实现了高效的连接池管理，自动处理连接复用和清理，提升性能并减少资源消耗。
+
+```typescript
+// 获取连接池统计信息
+const poolStats = client.getConnectionPoolStats();
+console.log("连接池统计:", {
+  管理连接数: poolStats.adminConnections,
+  控制连接数: poolStats.controlConnections,
+  总连接数: poolStats.totalConnections,
+  最大池大小: poolStats.maxPoolSize,
+  连接TTL: poolStats.ttl + "ms",
+});
+
+// 清理连接池
+client.clearConnectionPool();
+
+// 配置连接池（在客户端初始化时自动设置）
+const client = new ApisixSDK({
+  adminAPI: {
+    baseURL: "http://127.0.0.1:9180",
+    apiKey: "your-api-key",
+  },
+  // 连接池自动初始化，最大10个连接，5分钟TTL
+});
+```
+
+**连接池特性：**
+
+- 自动连接复用，减少建立连接的开销
+- 智能过期清理，自动移除闲置连接
+- 连接池大小限制，防止资源过度消耗
+- 分别管理 Admin API 和 Control API 连接
+
+### 查询缓存机制
+
+SDK 内置智能查询缓存，自动缓存 GET 请求结果，减少重复请求，提升响应速度。
+
+```typescript
+// 获取缓存统计信息
+const cacheStats = client.getCacheStats();
+console.log("缓存统计:", {
+  总条目: cacheStats.totalEntries,
+  过期条目: cacheStats.expiredEntries,
+  内存占用: cacheStats.sizeInBytes + " bytes",
+});
+
+// 清理所有缓存
+client.clearCache();
+
+// 清理特定端点的缓存
+client.clearCacheForEndpoint("/routes");
+
+// 跳过缓存进行请求
+const freshData = await client.routes.list(undefined, { skipCache: true });
+
+// 配置缓存设置
+client.configureCache({
+  ttl: 60000, // 60秒缓存
+  maxSize: 1000, // 最大1000个缓存条目
+});
+```
+
+**缓存特性：**
+
+- 30秒默认TTL（可配置）
+- 自动过期清理
+- 基于请求方法和参数的智能缓存键
+- 支持手动缓存清理和统计查询
+
+### 智能重试机制
+
+SDK 实现了带有指数退避的智能重试机制，自动处理网络故障和临时错误。
+
+```typescript
+// 配置重试设置
+client.configureRetry({
+  maxAttempts: 5, // 最大重试次数
+  baseDelay: 2000, // 基础延迟2秒
+});
+
+// 重试会自动应用于所有请求
+try {
+  const route = await client.routes.get("route-id");
+  // 如果请求失败，SDK会自动重试（最多5次）
+} catch (error) {
+  // 所有重试都失败后才抛出错误
+  console.log("所有重试都失败:", error.message);
+}
+
+// 重试机制会智能跳过某些错误类型：
+// - 认证错误 (401)
+// - 权限错误 (403)
+// - 资源不存在 (404)
+// - 数据验证错误
+// - 资源已存在冲突
+```
+
+**重试特性：**
+
+- 指数退避算法，避免请求风暴
+- 智能错误分类，只重试可恢复错误
+- 可配置重试次数和延迟
+- 随机抖动，防止同步重试
+
+### 版本兼容性检测
+
+SDK 自动检测 APISIX 版本并提供兼容性支持，确保在不同版本间正常工作。
+
+```typescript
+// 获取当前 APISIX 版本
+const version = await client.getVersion();
+console.log("APISIX 版本:", version);
+
+// 检查版本兼容性
+const isCompatible = await client.isVersionCompatible("3.2.0");
+console.log("兼容 3.2.0:", isCompatible);
+
+// 检查是否为 3.0 或更高版本
+const isV3Plus = await client.isVersion3OrLater();
+console.log("支持 v3+ 特性:", isV3Plus);
+
+// 获取版本特定配置
+const versionConfig = await client.getApiVersionConfig();
+console.log("版本特性:", {
+  支持凭据管理: versionConfig.supportsCredentials,
+  支持 Secrets: versionConfig.supportsSecrets,
+  支持新响应格式: versionConfig.supportsNewResponseFormat,
+  支持流路由: versionConfig.supportsStreamRoutes,
+  支持分页: versionConfig.supportsPagination,
+});
+```
+
+**版本检测特性：**
+
+- 自动版本检测和缓存
+- 版本比较功能
+- API 特性兼容性检查
+- 降级支持旧版本
+
+### 请求取消功能
+
+SDK 支持请求取消，允许长时间运行的操作被中途终止。
+
+```typescript
+// 创建 AbortController
+const controller = client.createAbortController();
+
+// 发起可取消的请求
+const requestPromise = client.routes.list(undefined, {
+  signal: controller.signal,
+});
+
+// 取消请求
+setTimeout(() => {
+  controller.abort();
+  console.log("请求已取消");
+}, 1000);
+
+try {
+  const routes = await requestPromise;
+} catch (error) {
+  if (error.name === "AbortError") {
+    console.log("请求被取消");
+  } else {
+    console.log("其他错误:", error.message);
+  }
+}
+```
+
+### 系统监控和统计
+
+通过 Control API 获取详细的系统监控信息和统计数据。
+
+```typescript
+// 获取系统概览
+const overview = await client.control.getSystemOverview();
+console.log("系统概览:", {
+  服务器信息: overview.server,
+  模式信息: overview.schemas,
+  健康状态: overview.health,
+  上游健康: overview.upstreamHealth,
+  发现服务: overview.discoveryServices,
+});
+
+// 获取内存统计
+const memoryStats = await client.control.getMemoryStats();
+console.log("内存使用:", memoryStats);
+
+// 获取 Prometheus 指标
+const metrics = await client.control.getPrometheusMetrics();
+console.log("Prometheus 指标:", metrics.substring(0, 200) + "...");
+
+// 健康检查
+const isHealthy = await client.control.isHealthy();
+console.log("系统健康状态:", isHealthy);
+
+// 触发垃圾回收
+const gcResult = await client.control.triggerGC();
+console.log("GC 结果:", gcResult);
+```
+
+### 配置验证和建议系统
+
+SDK 提供配置验证和建议功能，帮助优化 APISIX 配置。
+
+```typescript
+// 验证路由配置
+const validation = await client.control.validateSchema("route", routeConfig, {
+  validatePlugins: true,
+  pluginName: "limit-count",
+});
+
+if (!validation.valid) {
+  console.log("验证错误:", validation.errors);
+  console.log("验证警告:", validation.warnings);
+}
+
+// 获取配置建议
+const recommendations = await client.control.getValidationRecommendations();
+console.log("可用插件:", recommendations.availablePlugins);
+console.log("已弃用插件:", recommendations.deprecatedPlugins);
+console.log("推荐设置:", recommendations.recommendedSettings);
+
+// 检查模式兼容性
+const compatibility = await client.control.getSchemaCompatibility("3.6.0");
+console.log("兼容性检查:", {
+  当前版本: compatibility.currentVersion,
+  目标版本: compatibility.targetVersion,
+  是否兼容: compatibility.compatible,
+  破坏性变更: compatibility.breaking_changes,
+  新特性: compatibility.new_features,
+});
+```
+
+### 插件元数据管理
+
+管理和查询插件的元数据信息。
+
+```typescript
+// 获取所有插件元数据
+const pluginMetadata = await client.control.getPluginMetadata();
+console.log("插件元数据:", pluginMetadata);
+
+// 获取特定插件的元数据
+const pluginInfo = await client.control.getPluginMetadataById("limit-count");
+console.log("limit-count 插件信息:", pluginInfo);
+
+// 重载插件
+const reloadResult = await client.control.reloadPlugins();
+console.log("插件重载结果:", reloadResult);
+```
+
+### Prometheus 集成
+
+集成 Prometheus 监控，收集详细的性能指标。
+
+```typescript
+// 获取 Prometheus 指标
+const metrics = await client.control.getPrometheusMetrics();
+
+// 解析关键指标
+const lines = metrics.split("\n");
+const httpRequests = lines.find((line) =>
+  line.startsWith("http_requests_total"),
+);
+const responseTime = lines.find((line) =>
+  line.startsWith("apisix_http_latency_seconds"),
+);
+
+console.log("HTTP 请求总数:", httpRequests);
+console.log("响应时间:", responseTime);
+
+// 指标类型包括：
+// - http_requests_total: HTTP 请求总数
+// - apisix_http_latency_seconds: 响应时间
+// - apisix_bandwidth_bytes: 带宽使用
+// - apisix_connections_active: 活跃连接数
+// - apisix_etcd_reachable: etcd 连接状态
 ```
 
 ## API 特性
